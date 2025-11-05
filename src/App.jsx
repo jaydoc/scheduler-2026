@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, updateDoc, onSnapshot, query, where, getDocs, runTransaction } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app/dist/index.cjs.js'; // NOTE: Full path for 'app'
+import { getAuth, signInAnonymously } from 'firebase/auth/dist/index.cjs.js'; // NOTE: Full path for 'auth'
+import { getFirestore, doc, setDoc, collection, query, onSnapshot, runTransaction, where, getDocs } from 'firebase/firestore/dist/index.cjs.js'; // NOTE: Full path for 'firestore'
 
 // ----------------------------------------------------------------------
 // *** ACTION REQUIRED: REPLACE THESE PLACEHOLDERS WITH YOUR OWN KEYS ***
