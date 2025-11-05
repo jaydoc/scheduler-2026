@@ -1,6 +1,8 @@
-import { initializeApp } from 'firebase/app/dist/index.cjs.js'; // NOTE: Full path for 'app'
-import { getAuth, signInAnonymously } from 'firebase/auth/dist/index.cjs.js'; // NOTE: Full path for 'auth'
-import { getFirestore, doc, setDoc, collection, query, onSnapshot, runTransaction, where, getDocs } from 'firebase/firestore/dist/index.cjs.js'; // NOTE: Full path for 'firestore'
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, query, onSnapshot, runTransaction, where, getDocs } from 'firebase/firestore';
+
+// ... rest of your Firebase config and the App component ...
 
 // ----------------------------------------------------------------------
 // *** ACTION REQUIRED: REPLACE THESE PLACEHOLDERS WITH YOUR OWN KEYS ***
