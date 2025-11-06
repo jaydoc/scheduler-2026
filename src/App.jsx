@@ -4,7 +4,9 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
 
 /* ----------------------------------------------------------------------
-   Firebase config (kept flexible to your existing setup)
+   Firebase config (kept compatible with your current setup)
+   If your build injects __firebase_config, this honors it.
+   Otherwise it falls back to the values you supplied earlier.
    ---------------------------------------------------------------------- */
 const firebaseConfig = (() => {
   const FALLBACK = {
@@ -33,7 +35,7 @@ const db = getFirestore(app);
 const prefsDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
 
 /* ----------------------------------------------------------------------
-   Your month->weekend data (keep in sync with your source)
+   Source data: months -> weekends (keep aligned with your calendar)
    ---------------------------------------------------------------------- */
 const months = {
   '01': [
@@ -114,7 +116,10 @@ const months = {
   ],
 };
 
-// flatten for order mapping
+// Canonical month order Jan -> Dec
+const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+
+// flatten ids for ordering
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
 /* ----------------------------------------------------------------------
@@ -122,7 +127,7 @@ const allWeekendIds = Object.values(months).flat().map(w => w.date);
    prefs[weekendId] = {
      mostService: 'RNI'|'COA'|'none',
      mostRank: 0..10,
-     leastService: 'RNI'|'COA'|'none',  // NEW: optional service for least
+     leastService: 'RNI'|'COA'|'none',  // service allowed for least
      leastRank: 0..10
    }
    ---------------------------------------------------------------------- */
@@ -135,7 +140,7 @@ function initEmptyPrefs() {
 }
 
 /* ----------------------------------------------------------------------
-   Small UI helpers
+   Tiny UI helpers
    ---------------------------------------------------------------------- */
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
 const btn = (kind = 'white', disabled = false) => {
@@ -175,12 +180,18 @@ function RankSelect({ value, onChange, disabled, placeholder }) {
 }
 
 /* ----------------------------------------------------------------------
-   Month card
+   Month card (full month names, Sat–Sun weekends stacked)
    ---------------------------------------------------------------------- */
+function monthTitleFull(mk) {
+  const idx = parseInt(mk, 10) - 1;
+  const full = ['January','February','March','April','May','June','July','August','September','October','November','December'][idx];
+  return `${full} ${YEAR}`;
+}
+
 function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
   return (
     <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-200">
-      <h2 className="bg-yellow-400 text-gray-800 text-md sm:text-lg font-extrabold p-3 text-center border-b-2 border-yellow-500">
+      <h2 className="bg-yellow-400 text-gray-900 text-lg font-extrabold p-3 text-center border-b-2 border-yellow-500">
         {label}
       </h2>
       <div className="p-3 space-y-3">
@@ -197,7 +208,6 @@ function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
                 {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
               </div>
 
-              {/* service availability note */}
               <div className="text-xs text-gray-600 mb-2">
                 <span className={`px-2 py-0.5 rounded-md mr-2 ${rniOpen ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>RNI: {rniOpen ? 'OPEN' : w.rni}</span>
                 <span className={`px-2 py-0.5 rounded-md ${coaOpen ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'}`}>COA: {coaOpen ? 'OPEN' : w.coa}</span>
@@ -207,7 +217,7 @@ function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
                 <div className="grid gap-3">
                   {/* MOST */}
                   <div className="rounded-lg border p-2">
-                    <div className="text-xs font-semibold mb-1">Most (required: service + rank)</div>
+                    <div className="text-xs font-semibold mb-1">Most (service + rank required)</div>
                     <div className="flex flex-wrap gap-8 items-center">
                       <RadioService
                         disabled={false}
@@ -262,7 +272,7 @@ function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
 }
 
 /* ----------------------------------------------------------------------
-   App (2 columns x 6 rows of month cards)
+   App: 2 columns × 6 rows, months in full-name order Jan → Dec
    ---------------------------------------------------------------------- */
 export default function App() {
   const [uid, setUid] = useState(null);
@@ -296,7 +306,6 @@ export default function App() {
         if (snap.exists()) {
           const d = snap.data();
           if (d.preferences) {
-            // migrate if missing new keys
             const next = { ...initEmptyPrefs(), ...d.preferences };
             setPrefs(next);
           } else if (d.top10 || d.bottom10) {
@@ -326,25 +335,25 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
   }, []);
 
-  // validation: exactly 10 most + 10 least; no duplicate ranks within each bucket
+  // validation: exactly 10 Most + 10 Least; no duplicate ranks within each bucket
   const counts = useMemo(() => {
-    const most = [];
-    const least = [];
-    for (const [id, p] of Object.entries(prefs)) {
-      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) most.push(p.mostRank);
-      if (p.leastRank > 0) least.push(p.leastRank);
+    const mostRanks = [];
+    const leastRanks = [];
+    for (const p of Object.values(prefs)) {
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) mostRanks.push(p.mostRank);
+      if (p.leastRank > 0) leastRanks.push(p.leastRank);
     }
-    const dedup = (arr) => arr.length === new Set(arr).size;
-    const validMost = most.length === 10 && dedup(most);
-    const validLeast = least.length === 10 && dedup(least);
-    return { validMost, validLeast, isValid: validMost && validLeast, mostCount: most.length, leastCount: least.length };
+    const dedup = arr => arr.length === new Set(arr).size;
+    const validMost = mostRanks.length === 10 && dedup(mostRanks);
+    const validLeast = leastRanks.length === 10 && dedup(leastRanks);
+    return { validMost, validLeast, isValid: validMost && validLeast, mostCount: mostRanks.length, leastCount: leastRanks.length };
   }, [prefs]);
 
   const handleSubmit = async () => {
     if (!uid || !counts.isValid) return;
 
     // derive tidy arrays for downstream
-    const orderIdx = (id) => allWeekendIds.indexOf(id);
+    const orderIdx = id => allWeekendIds.indexOf(id);
     const top10 = [];
     const bottom10 = [];
     for (const [id, p] of Object.entries(prefs)) {
@@ -368,30 +377,24 @@ export default function App() {
     alert('Preferences saved.');
   };
 
-  const monthKeys = Object.keys(months); // '01'..'12'
-  const monthTitle = (mk) => {
-    const name = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][parseInt(mk,10)-1];
-    return `${name} ${YEAR}`;
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
       <p className="text-sm text-gray-600 mb-4">
         Each month is a tile. For each weekend, select <b>Most</b> (service + rank) and/or <b>Least</b> (rank required, service optional).
-        You must complete exactly 10 Most and 10 Least (no duplicate ranks within a bucket) to submit.
+        You must complete exactly 10 Most and 10 Least with no duplicate ranks within a bucket to submit.
       </p>
 
       <div className="mb-4 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
         Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10
       </div>
 
-      {/* 2 columns x 6 rows grid of months */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {monthKeys.map((mk, i) => (
+      {/* 2 columns × 6 rows, strictly January → December */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {MONTH_KEYS.map(mk => (
           <MonthCard
             key={mk}
-            label={monthTitle(mk)}
+            label={monthTitleFull(mk)}
             items={months[mk]}
             prefs={prefs}
             onMostChange={(id, v) => setMost(id, v)}
