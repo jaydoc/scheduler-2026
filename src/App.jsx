@@ -9,14 +9,15 @@ import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/fire
 
 const firebaseConfig = (() => {
     // Define fallback *locally* inside the function for maximum scope safety
+    // Using simple mock keys to comply with Firebase initialization requirements
     const FALLBACK_CONFIG = {
-        apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
+       apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
 		authDomain: "attending-schedule-2026.firebaseapp.com",
 		projectId: "attending-schedule-2026",
 		storageBucket: "attending-schedule-2026.firebasestorage.app",
 		messagingSenderId: "777996986623",
 		appId: "1:777996986623:web:0a8697cccb63149d9744ca",
-		measurementId: "G-TJXCM9P7W2"
+		measurementId: "G-TJXCM9P7W2" 
     };
 
     // Use the environment's config if available and valid
@@ -55,7 +56,7 @@ const getPreferencesDocRef = (userId) => {
 };
 
 // ----------------------------------------------------------------------
-// DATA PROCESSING (FULL YEAR CONFIRMED/INFERRED)
+// DATA: 2026 WEEKEND SHIFTS
 // ----------------------------------------------------------------------
 
 const rawShiftsByMonth = {
@@ -146,7 +147,7 @@ const rawShiftsByMonth = {
         { day: '12', date: '2026-12-12', rni: null, coa: null }, // BOTH OPEN
         { day: '19', date: '2026-12-19', rni: 'Travers', coa: 'Kandasamy', isTaken: true },
         { day: '24-28', date: '2026-12-24', rni: 'Bhatia', coa: 'Arora', isTaken: true, detail: 'Christmas' }, 
-        { day: '31-Jan 4', date: '2026-12-31', rni: 'Kane', coa: 'Kandasamy', isTaken: true, detail: 'New Year\'s Eve' }, 
+        { day: '31-Jan 4', date: '2026-12-31', rni: 'Kane', coa: 'Kandasamy', isTaken: true, detail: "New Year's Eve" }, 
     ],
 };
 
@@ -162,7 +163,7 @@ const getShiftMap = () => {
             detail: s.detail,
             rniAttending: s.rni,
             coaAttending: s.coa,
-            // A shift is taken if it's explicitly marked as taken OR if neither service is open (e.g., both have names)
+            // A shift is fully taken if it's explicitly marked as taken OR if neither service is open (e.g., both have names)
             isTaken: s.isTaken || (!isRniOpen && !isCoaOpen),
             isRniAvailable: isRniOpen,
             isCoaAvailable: isCoaOpen,
@@ -175,8 +176,10 @@ const getShiftMap = () => {
 // SHARED COMPONENTS
 // ----------------------------------------------------------------------
 
-const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUpdate }) => {
-    const isSelected = currentPref.service === serviceType;
+const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUpdate, isAvailable }) => {
+    if (!isAvailable) return null; // Do not render selector if the slot is already assigned
+
+    const isSelectedService = currentPref.service === serviceType;
     
     // Options: None (0), Most (1-10), Least (1-10)
     const mostOptions = Array.from({ length: 10 }, (_, i) => ({ 
@@ -188,40 +191,34 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
         value: `least-${i + 1}`, 
     }));
     
-    const options = [
-        { label: "None", value: "none" },
-        ...mostOptions,
-        ...leastOptions,
-    ];
-
     // Determine the current value string for the select box
-    const currentValue = isSelected && currentPref.type !== 'none' 
+    const currentValue = isSelectedService && currentPref.type !== 'none' 
         ? `${currentPref.type}-${currentPref.rank}` 
         : 'none';
     
-    // Determine button text and styling
+    // Determine select box styling based on preference type
     let selectClass = `
         w-full text-[10px] p-0.5 rounded-md border shadow-sm h-[30px]
-        transition-all duration-150 ease-in-out cursor-pointer
-        focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500
+        transition-all duration-150 ease-in-out cursor-pointer appearance-none
+        focus:ring-2 focus:ring-offset-1 focus:ring-indigo-500
+        text-center
     `;
 
-    if (currentPref.type === 'most') {
+    if (currentPref.type === 'most' && isSelectedService) {
         selectClass += ' bg-emerald-100 border-emerald-500 text-emerald-800 font-semibold';
-    } else if (currentPref.type === 'least') {
+    } else if (currentPref.type === 'least' && isSelectedService) {
         selectClass += ' bg-rose-100 border-rose-500 text-rose-800 font-semibold';
-    } else if (isSelected) {
-        selectClass += ' bg-yellow-100 border-yellow-500 text-yellow-800';
     } else {
-        selectClass += ' bg-white border-gray-300 text-gray-700';
+        selectClass += ' bg-gray-50 border-gray-300 text-gray-700 hover:bg-white';
     }
 
 
     const handleChange = (e) => {
         const value = e.target.value;
-        const [type, rank] = value.split('-');
+        const [type, rankStr] = value.split('-');
+        
         // Pass the shiftId, the service, the type ('most'/'least'/'none'), and the rank
-        onUpdate(shiftId, serviceType, type || 'none', rank ? parseInt(rank, 10) : 0);
+        onUpdate(shiftId, serviceType, type || 'none', rankStr ? parseInt(rankStr, 10) : 0);
     };
 
     return (
@@ -230,14 +227,26 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
             onChange={handleChange}
             className={selectClass}
         >
-            <option value="none">
-                {isSelected ? `Selected ${serviceType}: Reset/Rank` : `Select ${serviceType}`}
+            <option value="none" disabled={currentValue !== 'none'}>
+                {serviceType}: {currentValue !== 'none' ? `${serviceType} Ranked ${currentPref.rank}` : 'Select Rank'}
             </option>
-            {options.slice(1).map(opt => (
-                <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                </option>
-            ))}
+            <option value="none">
+                -- Clear Rank --
+            </option>
+            <optgroup label="Most Preferred (1-10)">
+                {mostOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                    </option>
+                ))}
+            </optgroup>
+            <optgroup label="Least Preferred (1-10)">
+                {leastOptions.map(opt => (
+                    <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                    </option>
+                ))}
+            </optgroup>
         </select>
     );
 });
@@ -246,103 +255,96 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
 const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPreferenceUpdate }) => {
     
     // Helper to get Attending text for the table cell
-    const getAttendingText = (attending, isOpen, service) => {
+    const getAttendingText = (attending, service) => {
         if (attending) return attending;
-        if (isOpen) return `${service} OPEN`;
-        return 'FILLED'; 
+        return `${service} OPEN`;
     }
 
     return (
-        <table className="w-full text-left border-collapse table-auto">
-            <thead>
-                <tr>
-                    <th colSpan="3" className="bg-yellow-400 text-gray-800 text-lg font-extrabold p-3 border border-gray-300">
-                        {monthTitle}
-                    </th>
-                </tr>
-            </thead>
-            <tbody>
+        <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-200">
+            <h2 className="bg-yellow-400 text-gray-800 text-md sm:text-lg font-extrabold p-3 text-center border-b-2 border-yellow-500">
+                {monthTitle}
+            </h2>
+            <div className="p-2 sm:p-4 space-y-4">
                 {shifts.map((shift, index) => {
                     const shiftId = shift.date;
+                    // Get the preference for this specific shift ID
                     const pref = preferences[shiftId] || { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
-                    
-                    let rowClass = index % 2 === 0 ? 'bg-gray-50' : 'bg-white';
                     
                     const isRniOpen = shift.isRniAvailable;
                     const isCoaOpen = shift.isCoaAvailable;
+                    const isFullyAssigned = shift.isTaken;
 
-                    // Apply preference coloring
+                    // Determine visual styles for the shift container
+                    let shiftClass = 'p-3 rounded-lg border-2 transition-all duration-200';
+                    
                     if (pref.type === 'most') {
-                        rowClass += " !bg-emerald-100 ring-2 ring-emerald-300";
+                        shiftClass += " bg-emerald-50 border-emerald-500 ring-2 ring-emerald-300";
                     } else if (pref.type === 'least') {
-                        rowClass += " !bg-rose-100 ring-2 ring-rose-300";
-                    } else if (shift.isTaken) {
-                         rowClass += " opacity-75"; 
+                        shiftClass += " bg-rose-50 border-rose-500 ring-2 ring-rose-300";
+                    } else if (isFullyAssigned) {
+                         shiftClass += " bg-gray-100 border-gray-300 opacity-70"; 
+                    } else {
+                         shiftClass += " bg-white border-gray-200 hover:border-blue-400";
                     }
                     
-                    const rniText = getAttendingText(shift.rniAttending, isRniOpen, SERVICES.RNI);
-                    const coaText = getAttendingText(shift.coaAttending, isCoaOpen, SERVICES.COA);
+                    const rniText = getAttendingText(shift.rniAttending, SERVICES.RNI);
+                    const coaText = getAttendingText(shift.coaAttending, SERVICES.COA);
                     
-                    const assignmentText = `${rniText} / ${coaText}`;
-
-
                     return (
-                        <tr key={shiftId} className={`border border-gray-300 ${rowClass}`}>
-                            {/* Date Column */}
-                            <td className="w-1/4 p-2 font-semibold text-lg border-r border-gray-300 text-center">
-                                {shift.day}
-                            </td>
-                            {/* Attending/Assignment Column */}
-                            <td className="w-1/2 p-2 text-sm">
-                                <span className={`font-bold ${shift.isTaken ? 'text-red-700' : 'text-gray-800'}`}>
-                                    {assignmentText}
-                                </span>
-                                
-                                {/* Show detail if it contains holiday info */}
+                        <div key={shiftId} className={shiftClass}>
+                            {/* Date & Holiday */}
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-xl font-bold text-gray-900">{shift.day}</span>
                                 {shift.detail && (
-                                    <span className="ml-2 text-xs italic text-orange-600">
-                                        ({shift.detail})
+                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                                        {shift.detail}
                                     </span>
                                 )}
-                            </td>
+                            </div>
+                            
+                            {/* Attending Status */}
+                            <div className="mb-3 text-sm font-mono space-y-1">
+                                <div className={`px-2 py-1 rounded-md ${isRniOpen ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>
+                                    <span className="font-bold">RNI:</span> {rniText}
+                                </div>
+                                <div className={`px-2 py-1 rounded-md ${isCoaOpen ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'}`}>
+                                    <span className="font-bold">COA:</span> {coaText}
+                                </div>
+                            </div>
+                            
                             {/* Preference Dropdown Column */}
-                            <td className="w-1/4 p-1 space-y-1">
-                                {shift.isTaken && !isRniOpen && !isCoaOpen ? (
-                                    <div className="text-xs font-bold text-red-600 py-1 px-2 bg-red-100 rounded-md text-center shadow-inner">
-                                        FULLY ASSIGNED
+                            <div className="space-y-1 mt-3">
+                                {isFullyAssigned ? (
+                                    <div className="text-xs font-bold text-red-700 py-2 px-2 bg-red-100 rounded-md text-center shadow-inner">
+                                        FULLY ASSIGNED - NO RANKING AVAILABLE
                                     </div>
                                 ) : (
                                     <>
-                                        {shift.isRniAvailable && (
-                                            <PreferenceSelector
-                                                shiftId={shiftId}
-                                                serviceType={SERVICES.RNI}
-                                                currentPref={pref.service === SERVICES.RNI ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 }}
-                                                onUpdate={onPreferenceUpdate}
-                                            />
-                                        )}
-                                        {shift.isCoaAvailable && (
-                                            <PreferenceSelector
-                                                shiftId={shiftId}
-                                                serviceType={SERVICES.COA}
-                                                currentPref={pref.service === SERVICES.COA ? pref : { service: SERVICES.COA ? pref.service === SERVICES.COA ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 } : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 } }}
-                                                onUpdate={onPreferenceUpdate}
-                                            />
-                                        )}
-                                        {/* Fallback if a slot should be open but isn't rendering (for debugging) */}
-                                        {!shift.isRniAvailable && !shift.isCoaAvailable && shift.isTaken && (
-                                             <div className="text-xs font-bold text-red-600 py-1 px-2 bg-red-100 rounded-md text-center shadow-inner">
-                                                FULLY ASSIGNED
-                                            </div>
-                                        )}
+                                        {/* RNI Selector - Only if RNI slot is available */}
+                                        <PreferenceSelector
+                                            shiftId={shiftId}
+                                            serviceType={SERVICES.RNI}
+                                            currentPref={pref.service === SERVICES.RNI ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 }}
+                                            onUpdate={onPreferenceUpdate}
+                                            isAvailable={isRniOpen}
+                                        />
+                                        {/* COA Selector - Only if COA slot is available */}
+                                        <PreferenceSelector
+                                            shiftId={shiftId}
+                                            serviceType={SERVICES.COA}
+                                            currentPref={pref.service === SERVICES.COA ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 }}
+                                            onUpdate={onPreferenceUpdate}
+                                            isAvailable={isCoaOpen}
+                                        />
                                     </>
                                 )}
-                            </td>
-                        </tr>
+                            </div>
+                        </div>
                     );
                 })}
-            </tbody>
-        </table>
+            </div>
+        </div>
     );
 });
 
@@ -415,10 +417,9 @@ export default function App() {
                 setPreferences(data.preferences || {});
                 setLoadingMessage("Preferences loaded.");
             } else {
-                // Initialize preferences structure in Firestore only if the document doesn't exist
+                // Initialize a base preferences object for all rankable slots
                 const initialPrefs = Object.values(shiftMap).reduce((acc, shift) => {
-                     // Only shifts with at least one available slot need a preference entry
-                    if (shift.isRniAvailable || shift.isCoaAvailable) {
+                     if (shift.isRniAvailable || shift.isCoaAvailable) {
                          acc[shift.id] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
                     }
                     return acc;
@@ -443,28 +444,31 @@ export default function App() {
         setPreferences(prevPreferences => {
             const newPreferences = { ...prevPreferences };
             
-            // Check for duplicate ranks across ALL shifts, regardless of service (RNI/COA)
+            // Validate against duplicate ranks across all active selections
             if (type !== 'none' && rank > 0) {
-                const isRankUsed = Object.entries(newPreferences).some(([id, pref]) => 
-                    (id !== shiftId || pref.service !== serviceType) && pref.type === type && pref.rank === rank
-                );
+                const isRankUsed = Object.entries(newPreferences).some(([id, pref]) => {
+                    // Check if another shift (id !== shiftId) or the other service on this shift (pref.service !== serviceType)
+                    // has the same type and rank
+                    return (id !== shiftId || pref.service !== serviceType) && 
+                           pref.type === type && 
+                           pref.rank === rank &&
+                           pref.service !== SERVICES.NONE;
+                });
                 
                 if (isRankUsed) {
-                    setSubmitStatus(`Error: Rank #${rank} in the ${type.toUpperCase()} category is already selected for another shift/service. Please choose a different rank.`);
+                    setSubmitStatus(`Error: Rank #${rank} in the ${type.toUpperCase()} category is already selected for another shift/service. Please choose a different rank or clear the existing one.`);
                     return prevPreferences; 
                 }
             }
             
-            // If selecting a rank (most/least), update the service type too.
+            const currentShiftPref = newPreferences[shiftId] || { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
+            
             if (type !== 'none') {
+                // Set the new preference
                 newPreferences[shiftId] = { service: serviceType, type, rank };
             } else {
-                // If selecting 'None', reset the preference for this shift
-                // We only reset if the previous preference matched the service type being interacted with
-                if (newPreferences[shiftId] && newPreferences[shiftId].service === serviceType) {
-                    newPreferences[shiftId] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
-                } else if (!newPreferences[shiftId]) {
-                    // Create an empty entry if none exists
+                // Clear the rank for the specific service, but only if it's the currently ranked service
+                if (currentShiftPref.service === serviceType) {
                     newPreferences[shiftId] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
                 }
             }
@@ -483,12 +487,16 @@ export default function App() {
         let isValid = true;
         let validationMessage = "";
         
-        // Check for correct ranking ranges (1-10)
-        if (most.some(p => p.rank < 1 || p.rank > 10) || least.some(p => p.rank < 1 || p.rank > 10)) {
+        // Check for total rank limits (must be between 1 and 10 for each category)
+        if (most.length > 10) {
             isValid = false;
-            validationMessage = "Ranks must be between 1 and 10.";
+            validationMessage = `You have selected ${most.length} 'Most Preferred' slots. You can only select up to 10.`;
         }
-
+        if (least.length > 10) {
+            isValid = false;
+            validationMessage = `You have selected ${least.length} 'Least Preferred' slots. You can only select up to 10.`;
+        }
+        
         // Check for unique ranks across ALL selected preferences
         const allRanks = activePreferences.map(p => `${p.type}-${p.rank}`);
         if (allRanks.length !== new Set(allRanks).size) {
@@ -545,13 +553,12 @@ export default function App() {
     };
 
 
-    // --- RENDER ---
+    // --- RENDER HELPERS ---
     const monthOrder = Object.keys(rawShiftsByMonth);
 
-    // Helper to extract the month name and attending list from the raw data structure
     const getMonthTitle = (monthKey) => {
         const monthMap = {
-            '01': 'JANUARY (Kane/Winter/Hightower/Coghill) - ALL OPEN',
+            '01': 'JANUARY (Kane/Winter/Hightower/Coghill)',
             '02': 'FEBRUARY (Philips/Boone/Willis/Stoops/Kabani)',
             '03': 'MARCH (Valcarce/Ambal/Arora/Winter)',
             '04': 'APRIL (Sims/Kane/Black/Yazdi)',
@@ -561,52 +568,58 @@ export default function App() {
             '08': 'AUGUST (Boone/Sims/Summerlin/Carlo)',
             '09': 'SEPTEMBER (Mackay/Philips/Black/Stoops)',
             '10': 'OCTOBER (Kandasamy/Travers/Yazdi/Carlo/Bhatia)',
-            '11': 'NOVEMBER (Ambal/Bhatia/Hightower/Black) - 4 COA OPEN',
+            '11': 'NOVEMBER (Ambal/Bhatia/Hightower/Black)',
             '12': 'DECEMBER (Travers/Valcarce/Kabani/Kandasamy)',
         };
-        return monthMap[monthKey] || 'TBD';
+        return `${monthMap[monthKey] || 'TBD'} ${YEAR}`;
     };
 
 
     return (
         <div className="p-4 sm:p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-h-screen">
-            <h1 className="text-3xl font-bold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
+            <h1 className="text-3xl font-extrabold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
             <p className="text-sm text-gray-600 mb-4">
-                Paired Calendar View | **Total Available Slots to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
+                Paired Calendar View | **Total Rankable Slots**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
             </p>
             
-            <p className={`text-sm font-medium ${loadingMessage.includes('Error') ? 'text-red-600' : 'text-green-600'} mb-6`}>
-                Database Status: {loadingMessage}
-            </p>
+            {/* --- Status & Auth Info --- */}
+            <div className="mb-6 p-3 bg-indigo-50 border-l-4 border-indigo-400 rounded-lg">
+                <p className={`text-sm font-medium ${loadingMessage.includes('Error') ? 'text-red-600' : 'text-indigo-800'}`}>
+                    Database Status: {loadingMessage}
+                </p>
+                <p className="text-xs text-indigo-700 mt-1">
+                    Your User ID: <span className="font-mono text-xs">{userId || 'Authenticating...'}</span>
+                </p>
+            </div>
 
             {/* --- Count & Instructions Bar --- */}
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 p-4 bg-white shadow-lg rounded-xl border border-gray-200">
-                <p className="text-sm text-gray-600 sm:mr-4 mb-4 sm:mb-0">
-                    **Instructions:** For **OPEN** slots, select the service (RNI or COA) and then rank your preference (Most/Least). Ranks (1-10) must be unique across all selections.
-                </p>
-                <div className="flex-shrink-0 flex space-x-2">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 p-4 bg-white shadow-xl rounded-xl border border-gray-200">
+                <div className="text-sm text-gray-700 sm:mr-4 mb-4 sm:mb-0">
+                    **Instructions:** For **OPEN** slots, use the dropdowns to select a rank. You must choose **unique** ranks from #1 to #10 for both the Most and Least Preferred categories.
+                </div>
+                <div className="flex-shrink-0 flex flex-wrap space-x-2 space-y-2 sm:space-y-0">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold 
-                        ${counts.mostCount >= 1 && counts.mostCount <= 10 ? 'bg-emerald-100 text-emerald-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        Most Pref: {counts.mostCount} / 10
+                        ${counts.mostCount > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        Most Pref. Selected: {counts.mostCount} / 10
                     </span>
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold 
-                        ${counts.leastCount >= 1 && counts.leastCount <= 10 ? 'bg-rose-100 text-rose-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                        Least Pref: {counts.leastCount} / 10
+                        ${counts.leastCount > 0 ? 'bg-rose-100 text-rose-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        Least Pref. Selected: {counts.leastCount} / 10
                     </span>
                 </div>
             </div>
             
-            {/* --- PAIRED TABULAR VIEW --- */}
+            {/* --- PAIRED TABULAR VIEW (2 COLUMNS) --- */}
             <div className="space-y-6">
+                {/* Iterate over months, taking two at a time */}
                 {monthOrder.map((_, index) => {
-                    // We only want to process every other month (index 0, 2, 4, etc.)
                     if (index % 2 === 0) {
                         const month1Key = monthOrder[index];
                         const month2Key = monthOrder[index + 1];
                         
                         return (
                             // Responsive grid: 1 column on small screens, 2 columns on medium/large screens
-                            <div key={month1Key} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div key={month1Key} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <MonthTable 
                                     monthKey={month1Key}
                                     monthTitle={getMonthTitle(month1Key)}
@@ -638,14 +651,14 @@ export default function App() {
                     onClick={handleSubmit}
                     disabled={isSubmitting || !counts.isValid}
                     className={`
-                        py-3 px-8 text-lg font-semibold rounded-xl shadow-lg transition-all duration-300
+                        py-3 px-10 text-xl font-bold rounded-xl shadow-lg transition-all duration-300
                         ${counts.isValid && !isSubmitting
-                            ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-xl'
+                            ? 'bg-blue-600 text-white hover:bg-blue-700 hover:shadow-2xl'
                             : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                         }
                     `}
                 >
-                    {isSubmitting ? 'Saving...' : 'Submit Preferences'}
+                    {isSubmitting ? 'Saving...' : 'Submit Final Preferences'}
                 </button>
                 {submitStatus && (
                     <p className={`mt-3 text-sm font-medium text-center ${submitStatus.includes('Error') || submitStatus.includes('Blocked') ? 'text-red-600' : 'text-green-600'}`}>
@@ -654,13 +667,9 @@ export default function App() {
                 )}
                 {!counts.isValid && (
                     <p className="mt-3 text-sm font-medium text-center text-red-600">
-                        {counts.validationMessage}
+                        **Validation Error:** {counts.validationMessage}
                     </p>
                 )}
-            </div>
-
-            <div className="mt-12 pt-6 border-t border-gray-200 text-xs text-gray-500 text-center">
-                <p>Your unique user ID is: <span className="font-mono text-gray-700">{userId || 'Authenticating...'}</span>.</p>
             </div>
         </div>
     );
