@@ -1,12 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
 
 /* ----------------------------------------------------------------------
-   Firebase config (kept compatible with your current setup)
-   If your build injects __firebase_config, this honors it.
-   Otherwise it falls back to the values you supplied earlier.
+   Firebase (keeps your prior pattern; honors __firebase_config if injected)
    ---------------------------------------------------------------------- */
 const firebaseConfig = (() => {
   const FALLBACK = {
@@ -35,7 +33,7 @@ const db = getFirestore(app);
 const prefsDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
 
 /* ----------------------------------------------------------------------
-   Source data: months -> weekends (keep aligned with your calendar)
+   Calendar data (same as before; Sat–Sun weekends by month)
    ---------------------------------------------------------------------- */
 const months = {
   '01': [
@@ -116,20 +114,12 @@ const months = {
   ],
 };
 
-// Canonical month order Jan -> Dec
 const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12'];
-
-// flatten ids for ordering
+const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
 /* ----------------------------------------------------------------------
-   Preference model:
-   prefs[weekendId] = {
-     mostService: 'RNI'|'COA'|'none',
-     mostRank: 0..10,
-     leastService: 'RNI'|'COA'|'none',  // service allowed for least
-     leastRank: 0..10
-   }
+   Preferences shape
    ---------------------------------------------------------------------- */
 function initEmptyPrefs() {
   const base = {};
@@ -140,7 +130,7 @@ function initEmptyPrefs() {
 }
 
 /* ----------------------------------------------------------------------
-   Tiny UI helpers
+   Small UI helpers
    ---------------------------------------------------------------------- */
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
 const btn = (kind = 'white', disabled = false) => {
@@ -180,104 +170,163 @@ function RankSelect({ value, onChange, disabled, placeholder }) {
 }
 
 /* ----------------------------------------------------------------------
-   Month card (full month names, Sat–Sun weekends stacked)
+   Month card (equal-height; collapsible; colored headers)
    ---------------------------------------------------------------------- */
-function monthTitleFull(mk) {
-  const idx = parseInt(mk, 10) - 1;
-  const full = ['January','February','March','April','May','June','July','August','September','October','November','December'][idx];
-  return `${full} ${YEAR}`;
-}
+const MONTH_COLORS = [
+  { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' }, // Jan
+  { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' }, // Feb
+  { bg: '#bbf7d0', fg: '#064e3b', border: '#10b981' }, // Mar
+  { bg: '#fecaca', fg: '#7f1d1d', border: '#f87171' }, // Apr
+  { bg: '#ddd6fe', fg: '#312e81', border: '#8b5cf6' }, // May
+  { bg: '#c7d2fe', fg: '#1e3a8a', border: '#6366f1' }, // Jun
+  { bg: '#fbcfe8', fg: '#831843', border: '#ec4899' }, // Jul
+  { bg: '#a7f3d0', fg: '#065f46', border: '#34d399' }, // Aug
+  { bg: '#fcd34d', fg: '#1f2937', border: '#f59e0b' }, // Sep
+  { bg: '#fca5a5', fg: '#7f1d1d', border: '#ef4444' }, // Oct
+  { bg: '#93c5fd', fg: '#1e3a8a', border: '#3b82f6' }, // Nov
+  { bg: '#86efac', fg: '#064e3b', border: '#22c55e' }, // Dec
+];
 
-function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
+// Equal-height trick: set a fixed minHeight for the card body.
+// Tweak this constant if you want taller/shorter tiles.
+const MONTH_MIN_HEIGHT = 520;
+
+function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, cardRef }) {
+  const color = MONTH_COLORS[parseInt(mk, 10) - 1] || MONTH_COLORS[0];
+
   return (
-    <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-200">
-      <h2 className="bg-yellow-400 text-gray-900 text-lg font-extrabold p-3 text-center border-b-2 border-yellow-500">
-        {label}
-      </h2>
-      <div className="p-3 space-y-3">
-        {items.map(w => {
-          const p = prefs[w.date] || { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
-          const rniOpen = w.rni === null;
-          const coaOpen = w.coa === null;
-          const fullyAssigned = w.isTaken || (!rniOpen && !coaOpen);
+    <div
+      ref={cardRef}
+      id={`month-${mk}`}
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        border: `1px solid #e2e8f0`,
+        borderRadius: 16,
+        background: '#fff',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+      }}
+    >
+      <button
+        onClick={onToggle}
+        style={{
+          background: color.bg,
+          color: color.fg,
+          borderBottom: `2px solid ${color.border}`,
+          fontWeight: 800,
+          padding: '10px 12px',
+          textAlign: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          cursor: 'pointer'
+        }}
+        title="Collapse/expand"
+      >
+        <span>{label}</span>
+        <span style={{ fontWeight: 900 }}>{collapsed ? '▸' : '▾'}</span>
+      </button>
 
-          return (
-            <div key={w.date} className={`p-3 rounded-xl border ${fullyAssigned ? 'bg-gray-50 border-gray-200 opacity-70' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-center justify-between mb-2">
-                <div className="text-lg font-bold text-gray-900">{w.day}</div>
-                {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
-              </div>
+      {!collapsed && (
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, minHeight: MONTH_MIN_HEIGHT }}>
+          {items.map(w => {
+            const p = prefs[w.date] || { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
+            const rniOpen = w.rni === null;
+            const coaOpen = w.coa === null;
+            const fullyAssigned = w.isTaken || (!rniOpen && !coaOpen);
 
-              <div className="text-xs text-gray-600 mb-2">
-                <span className={`px-2 py-0.5 rounded-md mr-2 ${rniOpen ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>RNI: {rniOpen ? 'OPEN' : w.rni}</span>
-                <span className={`px-2 py-0.5 rounded-md ${coaOpen ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'}`}>COA: {coaOpen ? 'OPEN' : w.coa}</span>
-              </div>
+            return (
+              <div key={w.date} style={{
+                padding: 12,
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                background: fullyAssigned ? '#f9fafb' : '#fff',
+                opacity: fullyAssigned ? 0.75 : 1
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{w.day}</div>
+                  {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
+                </div>
 
-              {!fullyAssigned ? (
-                <div className="grid gap-3">
-                  {/* MOST */}
-                  <div className="rounded-lg border p-2">
-                    <div className="text-xs font-semibold mb-1">Most (service + rank required)</div>
-                    <div className="flex flex-wrap gap-8 items-center">
-                      <RadioService
-                        disabled={false}
-                        value={p.mostService}
-                        onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
-                        name={`most-${w.date}`}
-                      />
-                      <RankSelect
-                        disabled={p.mostService === SERVICES.NONE}
-                        value={p.mostRank}
-                        onChange={(rank) => onMostChange(w.date, { ...p, mostRank: rank })}
-                        placeholder="Most rank…"
-                      />
-                      {p.mostService !== SERVICES.NONE && p.mostRank > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostRank}</span>}
-                      {p.mostService !== SERVICES.NONE && !(p.mostService === SERVICES.RNI ? rniOpen : coaOpen) && (
-                        <span className="text-xs text-amber-700">Selected service isn’t open for this weekend.</span>
-                      )}
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                  <span className={`px-2 py-0.5 rounded-md`} style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#374151', marginRight: 8 }}>
+                    RNI: {rniOpen ? 'OPEN' : w.rni}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md`} style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#374151' }}>
+                    COA: {coaOpen ? 'OPEN' : w.coa}
+                  </span>
+                </div>
+
+                {!fullyAssigned ? (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {/* MOST */}
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Most (service + rank required)</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                        <RadioService
+                          disabled={false}
+                          value={p.mostService}
+                          onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
+                          name={`most-${w.date}`}
+                        />
+                        <RankSelect
+                          disabled={p.mostService === SERVICES.NONE}
+                          value={p.mostRank}
+                          onChange={(rank) => onMostChange(w.date, { ...p, mostRank: rank })}
+                          placeholder="Most rank…"
+                        />
+                        {p.mostService !== SERVICES.NONE && p.mostRank > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostRank}</span>}
+                        {p.mostService !== SERVICES.NONE && !(p.mostService === SERVICES.RNI ? rniOpen : coaOpen) && (
+                          <span style={{ fontSize: 12, color: '#92400e' }}>Selected service isn’t open for this weekend.</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* LEAST (service optional, as requested) */}
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Least (rank required; service optional)</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                        <RadioService
+                          disabled={false}
+                          value={p.leastService}
+                          onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
+                          name={`least-${w.date}`}
+                        />
+                        <RankSelect
+                          disabled={false}
+                          value={p.leastRank}
+                          onChange={(rank) => onLeastChange(w.date, { ...p, leastRank: rank })}
+                          placeholder="Least rank…"
+                        />
+                        {p.leastRank > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastRank}</span>}
+                      </div>
                     </div>
                   </div>
-
-                  {/* LEAST */}
-                  <div className="rounded-lg border p-2">
-                    <div className="text-xs font-semibold mb-1">Least (rank required; service optional)</div>
-                    <div className="flex flex-wrap gap-8 items-center">
-                      <RadioService
-                        disabled={false}
-                        value={p.leastService}
-                        onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
-                        name={`least-${w.date}`}
-                      />
-                      <RankSelect
-                        disabled={false}
-                        value={p.leastRank}
-                        onChange={(rank) => onLeastChange(w.date, { ...p, leastRank: rank })}
-                        placeholder="Least rank…"
-                      />
-                      {p.leastRank > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastRank}</span>}
-                    </div>
+                ) : (
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#991b1b', background: '#fee2e2', padding: 8, borderRadius: 8, textAlign: 'center' }}>
+                    FULLY ASSIGNED — NO RANKING AVAILABLE
                   </div>
-                </div>
-              ) : (
-                <div className="text-xs font-bold text-red-700 py-2 px-2 bg-red-100 rounded-md text-center shadow-inner">
-                  FULLY ASSIGNED — NO RANKING AVAILABLE
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ----------------------------------------------------------------------
-   App: 2 columns × 6 rows, months in full-name order Jan → Dec
+   App (adds sticky Jump-to-Month nav; equal-height 2-col grid; collapse)
    ---------------------------------------------------------------------- */
 export default function App() {
   const [uid, setUid] = useState(null);
   const [status, setStatus] = useState('Authenticating…');
   const [prefs, setPrefs] = useState(initEmptyPrefs());
+  const [collapsed, setCollapsed] = useState(() => Object.fromEntries(MONTH_KEYS.map(mk => [mk, false])));
+  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
 
   // auth
   useEffect(() => {
@@ -297,7 +346,7 @@ export default function App() {
     })();
   }, []);
 
-  // load if exists
+  // load existing
   useEffect(() => {
     if (!uid) return;
     (async () => {
@@ -309,7 +358,6 @@ export default function App() {
             const next = { ...initEmptyPrefs(), ...d.preferences };
             setPrefs(next);
           } else if (d.top10 || d.bottom10) {
-            // legacy arrays -> fold into map
             const next = initEmptyPrefs();
             (d.top10 || []).forEach(t => {
               next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostRank: t.rank || 0 };
@@ -335,7 +383,6 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
   }, []);
 
-  // validation: exactly 10 Most + 10 Least; no duplicate ranks within each bucket
   const counts = useMemo(() => {
     const mostRanks = [];
     const leastRanks = [];
@@ -352,7 +399,6 @@ export default function App() {
   const handleSubmit = async () => {
     if (!uid || !counts.isValid) return;
 
-    // derive tidy arrays for downstream
     const orderIdx = id => allWeekendIds.indexOf(id);
     const top10 = [];
     const bottom10 = [];
@@ -377,40 +423,69 @@ export default function App() {
     alert('Preferences saved.');
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
-      <p className="text-sm text-gray-600 mb-4">
-        Each month is a tile. For each weekend, select <b>Most</b> (service + rank) and/or <b>Least</b> (rank required, service optional).
-        You must complete exactly 10 Most and 10 Least with no duplicate ranks within a bucket to submit.
-      </p>
+  const monthTitleFull = mk => `${MONTH_FULL[parseInt(mk,10)-1]} ${YEAR}`;
+  const jumpTo = mk => monthRefs.current[mk]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const toggleMonth = mk => setCollapsed(prev => ({ ...prev, [mk]: !prev[mk] }));
+  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
 
-      <div className="mb-4 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
-        Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Jump-to-Month nav */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)',
+        borderBottom: '1px solid #e5e7eb'
+      }}>
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ marginRight: 8 }}>Jump:</strong>
+          {MONTH_KEYS.map((mk, i) => (
+            <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
+              {MONTH_FULL[i].slice(0,3)}
+            </button>
+          ))}
+          <span style={{ flex: 1 }} />
+          <button onClick={() => collapseAll(true)}  style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Collapse all</button>
+          <button onClick={() => collapseAll(false)} style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Expand all</button>
+        </div>
       </div>
 
-      {/* 2 columns × 6 rows, strictly January → December */}
-     {/* FORCE 2×6 GRID ALWAYS (no Tailwind required) */}
-	<div style={{
-		display: 'grid',
-		gridTemplateColumns: 'repeat(2, 1fr)',
-		gap: '32px',
-		alignItems: 'start'
-	}}>
-		{MONTH_KEYS.map(mk => (
-			<MonthCard
-			key={mk}
-			label={monthTitleFull(mk)}
-			items={months[mk]}
-			prefs={prefs}
-			onMostChange={(id, v) => setMost(id, v)}
-			onLeastChange={(id, v) => setLeast(id, v)}
-		/>
-	))}
-</div>
+      {/* Header */}
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
+        <p className="text-sm text-gray-600 mb-4">
+          Each month is a tile. For each weekend, select <b>Most</b> (service + rank) and/or <b>Least</b> (rank required, service optional).
+          You must complete exactly 10 Most and 10 Least with no duplicate ranks within a bucket to submit.
+        </p>
+        <div className="mb-4 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
+          Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10
+        </div>
+      </div>
 
+      {/* 2-column equal-height grid (auto wraps on small screens) */}
+      <div style={{
+        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+        gap: '32px',
+        alignItems: 'stretch'
+      }}>
+        {MONTH_KEYS.map(mk => (
+          <MonthCard
+            key={mk}
+            mk={mk}
+            label={monthTitleFull(mk)}
+            items={months[mk]}
+            prefs={prefs}
+            onMostChange={(id, v) => setMost(id, v)}
+            onLeastChange={(id, v) => setLeast(id, v)}
+            collapsed={collapsed[mk]}
+            onToggle={() => toggleMonth(mk)}
+            cardRef={monthRefs.current[mk]}
+          />
+        ))}
+      </div>
 
-      <div className="mt-8">
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px' }}>
         <button
           className={`${counts.isValid ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
           disabled={!counts.isValid}
