@@ -607,7 +607,7 @@ export default function App() {
                                         monthTitle={getMonthTitle(month2Key)}
                                         shifts={rawShiftsByMonth[month2Key]}
                                         preferences={preferences}
-                                        onPreferenceUpdate={handlePreferenceChange}
+                                        onPreferenceUpdate={handlePreferenceUpdate}
                                     />
                                 )}
                             </div>
