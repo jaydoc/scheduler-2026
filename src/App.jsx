@@ -7,7 +7,7 @@ import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/fire
 // Firebase Config & Global Constants
 // ----------------------------------------------------------------------
 
-// 1. Define the fallback configuration first.
+// Fallback configuration (MUST be defined first to prevent ReferenceError)
 const FALLBACK_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
     authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -18,8 +18,10 @@ const FALLBACK_FIREBASE_CONFIG = {
     measurementId: "G-TJXCM9P7W2"
 };
 
-// 2. Use the fallback configuration.
+// Use the environment's config or the fallback
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
+
+// Other essential constants
 const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-paired"; 
 const YEAR = 2026;
 const SERVICES = {
@@ -607,7 +609,7 @@ export default function App() {
                                         monthTitle={getMonthTitle(month2Key)}
                                         shifts={rawShiftsByMonth[month2Key]}
                                         preferences={preferences}
-                                        onPreferenceUpdate={handlePreferenceUpdate}
+                                        onPreferenceUpdate={handlePreferenceChange}
                                     />
                                 )}
                             </div>
