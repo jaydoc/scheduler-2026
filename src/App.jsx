@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore'; 
 
 // ----------------------------------------------------------------------
-// Firebase Config & Global Constants (Order adjusted to fix ReferenceError)
+// Firebase Config & Global Constants
 // ----------------------------------------------------------------------
 
 // 1. Define the fallback configuration first.
@@ -20,7 +20,7 @@ const FALLBACK_FIREBASE_CONFIG = {
 
 // 2. Use the fallback configuration.
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-refined"; 
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-paired"; 
 const YEAR = 2026;
 const SERVICES = {
     RNI: 'RNI', 
@@ -41,109 +41,106 @@ const getPreferencesDocRef = (userId) => {
 };
 
 // ----------------------------------------------------------------------
-// DATA PROCESSING (Manually refined based on user feedback and document structure)
+// DATA PROCESSING (FULL YEAR CONFIRMED/INFERRED)
 // ----------------------------------------------------------------------
 
-// The service property now dictates which service the user can bid on (RNI, COA, or BOTH/NONE if filled).
 const rawShiftsByMonth = {
-    // RNI Attending is listed first, COA Attending is listed second.
-    // If rni/coa is null, that service is OPEN for bidding.
-    
-    // JANUARY 2026 (Assigned Attending List: Kane/Winter/Hightower/Coghill)
+    // JANUARY 2026 (Kane/Winter/Hightower/Coghill) - ALL weekends are now OPEN for bidding.
     '01': [
-        { day: '10', date: '2026-01-10', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Kane', coa: 'Winter' },
-        { day: '17-19', date: '2026-01-17', detail: 'MLK Day', rni: 'MLK Day', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
-        { day: '24', date: '2026-01-24', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Hightower', coa: 'Coghill' },
-        { day: '31', date: '2026-01-31', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Kane', coa: 'Winter' },
+        { day: '10', date: '2026-01-10', rni: null, coa: null }, 
+        { day: '17-19', date: '2026-01-17', rni: null, coa: null, detail: 'MLK Day' }, 
+        { day: '24', date: '2026-01-24', rni: null, coa: null }, 
+        { day: '31', date: '2026-01-31', rni: null, coa: null }, 
     ],
-    // FEBRUARY 2026 (Assigned Attending List: Philips/Boone/Willis/Stoops/Kabani)
+    // FEBRUARY 2026 (Philips/Boone/Willis/Stoops/Kabani) - COA OPEN verified by '/'
     '02': [
-        { day: '7', date: '2026-02-07', detail: 'Boone/', rni: 'Boone', coa: null }, // COA OPEN
-        { day: '14', date: '2026-02-14', detail: 'Boone/', rni: 'Boone', coa: null }, // COA OPEN
-        { day: '21', date: '2026-02-21', detail: 'Willis /', rni: 'Willis', coa: null }, // COA OPEN
-        { day: '28', date: '2026-02-28', detail: 'Willis/', rni: 'Willis', coa: null }, // COA OPEN
+        { day: '7', date: '2026-02-07', rni: 'Boone', coa: null }, 
+        { day: '14', date: '2026-02-14', rni: 'Boone', coa: null }, 
+        { day: '21', date: '2026-02-21', rni: 'Willis', coa: null }, 
+        { day: '28', date: '2026-02-28', rni: 'Willis', coa: null }, 
     ],
-    // MARCH 2026 (Assigned Attending List: Valcarce/Ambal/Arora/Winter)
+    // MARCH 2026 (Valcarce/Ambal/Arora/Winter) - RNI OPEN verified by '/'
     '03': [
-        { day: '7', date: '2026-03-07', detail: 'Ambal/Arora', rni: 'Ambal', coa: 'Arora' },
-        { day: '14', date: '2026-03-14', detail: '/Winter', rni: null, coa: 'Winter' }, // RNI OPEN
-        { day: '21', date: '2026-03-21', detail: 'Ambal/Arora', rni: 'Ambal', coa: 'Arora' },
-        { day: '28', date: '2026-03-28', detail: '/Arora', rni: null, coa: 'Arora' }, // RNI OPEN
+        { day: '7', date: '2026-03-07', rni: 'Ambal', coa: 'Arora', isTaken: true },
+        { day: '14', date: '2026-03-14', rni: null, coa: 'Winter' }, 
+        { day: '21', date: '2026-03-21', rni: 'Ambal', coa: 'Arora', isTaken: true },
+        { day: '28', date: '2026-03-28', rni: null, coa: 'Arora' }, 
     ],
-    // APRIL 2026 (Assigned Attending List: Sims/Kane/Black/Yazdi)
+    // APRIL 2026 (Sims/Kane/Black/Yazdi) - April 11 and 25 are fully OPEN
     '04': [
-        { day: '4', date: '2026-04-04', detail: 'Sims', rni: 'Sims', coa: null }, // COA OPEN
-        { day: '11', date: '2026-04-11', detail: 'Sims/Kane/Black/Yazdi', rni: 'Kane', coa: 'Black' },
-        { day: '18', date: '2026-04-18', detail: 'Sims', rni: 'Sims', coa: null }, // COA OPEN
-        { day: '25', date: '2026-04-25', detail: '(PAS)', rni: 'PAS', coa: 'PAS', isTaken: true }, // PAS is a detail, fully taken
+        { day: '4', date: '2026-04-04', rni: 'Sims', coa: null }, // COA OPEN
+        { day: '11', date: '2026-04-11', rni: null, coa: null }, // BOTH OPEN
+        { day: '18', date: '2026-04-18', rni: 'Sims', coa: null }, // COA OPEN
+        { day: '25', date: '2026-04-25', rni: null, coa: null, detail: 'PAS Meeting Coverage' }, // BOTH OPEN
     ],
-    // MAY 2026 (Assigned Attending List: Arora/Lal/Kabani/Summerlin)
+    // MAY 2026 (Arora/Lal/Kabani/Summerlin) - Memorial Day is OPEN
     '05': [
-        { day: '2', date: '2026-05-02', detail: 'Arora/Lal/Kabani/Summerlin', rni: 'Arora', coa: 'Lal' },
-        { day: '9', date: '2026-05-09', detail: 'Arora', rni: 'Arora', coa: null }, // COA OPEN
-        { day: '16', date: '2026-05-16', detail: 'Arora', rni: 'Arora', coa: null }, // COA OPEN
-        { day: '23-25', date: '2026-05-23', detail: 'Memorial Day', rni: 'Holiday', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
-        { day: '30', date: '2026-05-30', detail: 'Arora', rni: 'Arora', coa: null }, // COA OPEN
+        { day: '2', date: '2026-05-02', rni: null, coa: null }, // Both OPEN
+        { day: '9', date: '2026-05-09', rni: 'Arora', coa: null }, // COA OPEN
+        { day: '16', date: '2026-05-16', rni: 'Arora', coa: null }, // COA OPEN
+        { day: '23-25', date: '2026-05-23', rni: null, coa: null, detail: 'Memorial Day' }, // BOTH OPEN
+        { day: '30', date: '2026-05-30', rni: 'Arora', coa: null }, // COA OPEN
     ],
-    // JUNE 2026 (Assigned Attending List: Schuyler/Boone/Philips/Winter)
+    // JUNE 2026 (Schuyler/Boone/Philips/Winter) - COA OPEN verified by '/'
     '06': [
-        { day: '6', date: '2026-06-06', detail: 'Schuyler/Winter', rni: 'Schuyler', coa: 'Winter' },
-        { day: '13', date: '2026-06-13', detail: 'Boone/', rni: 'Boone', coa: null }, // COA OPEN
-        { day: '19-21', date: '2026-06-19', detail: 'Juneteenth Day Schuyler/Winter', rni: 'Holiday', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
-        { day: '27', date: '2026-06-27', detail: 'Boone', rni: 'Boone', coa: null }, // COA OPEN
+        { day: '6', date: '2026-06-06', rni: 'Schuyler', coa: 'Winter', isTaken: true }, // TAKEN
+        { day: '13', date: '2026-06-13', rni: 'Boone', coa: null }, // COA OPEN
+        { day: '19-21', date: '2026-06-19', rni: 'Schuyler', coa: 'Winter', isTaken: true, detail: 'Juneteenth Day' }, // TAKEN
+        { day: '27', date: '2026-06-27', rni: 'Boone', coa: null }, // COA OPEN
     ],
-    // JULY 2026 (Assigned Attending List: Jain/Shukla/Willis/Carlo)
+    // JULY 2026 (Jain/Shukla/Willis/Carlo) - RNI OPEN inferred from lack of assignment
     '07': [
-        { day: '4-6', date: '2026-07-04', detail: '4th of July Jain/Carlo', rni: 'Jain', coa: 'Carlo', isTaken: true }, // Holiday, fully taken
-        { day: '11', date: '2026-07-11', detail: '/Willis', rni: null, coa: 'Willis' }, // RNI OPEN
-        { day: '18', date: '2026-07-18', detail: 'Jain/Shukla/Willis/Carlo', rni: 'Shukla', coa: 'Willis' },
-        { day: '25', date: '2026-07-25', detail: 'Shukla/Willis', rni: 'Shukla', coa: 'Willis' },
+        { day: '4-6', date: '2026-07-04', rni: 'Jain', coa: 'Carlo', isTaken: true, detail: '4th of July' }, 
+        { day: '11', date: '2026-07-11', rni: null, coa: 'Willis' }, // RNI OPEN
+        { day: '18', date: '2026-07-18', rni: null, coa: null }, // BOTH OPEN 
+        { day: '25', date: '2026-07-25', rni: 'Shukla', coa: 'Willis', isTaken: true }, // TAKEN
     ],
-    // AUGUST 2026 (Assigned Attending List: Boone/Sims/Summerlin/Carlo)
+    // AUGUST 2026 (Boone/Sims/Summerlin/Carlo) - Data confirmed
     '08': [
-        { day: '1', date: '2026-08-01', detail: 'Boone/', rni: 'Boone', coa: null }, // COA OPEN
-        { day: '8', date: '2026-08-08', detail: 'Sims/Carlo', rni: 'Sims', coa: 'Carlo' },
-        { day: '15', date: '2026-08-15', detail: 'Boone/', rni: 'Boone', coa: null }, // COA OPEN
-        { day: '22', date: '2026-08-22', detail: 'Sims/', rni: 'Sims', coa: null }, // COA OPEN
-        { day: '29', date: '2026-08-29', detail: '/Carlo', rni: null, coa: 'Carlo' }, // RNI OPEN
+        { day: '1', date: '2026-08-01', rni: 'Boone', coa: null }, // COA OPEN
+        { day: '8', date: '2026-08-08', rni: 'Sims', coa: 'Carlo', isTaken: true }, // TAKEN
+        { day: '15', date: '2026-08-15', rni: 'Boone', coa: null }, // COA OPEN
+        { day: '22', date: '2026-08-22', rni: 'Sims', coa: null }, // COA OPEN
+        { day: '29', date: '2026-08-29', rni: null, coa: 'Carlo' }, // RNI OPEN
     ],
-    // SEPTEMBER 2026 (Mackay/Philips/Black/Stoops)
+    // SEPTEMBER 2026 (Mackay/Philips/Black/Stoops) - UPDATED based on snippet review
     '09': [
-        { day: '5-7', date: '2026-09-05', detail: 'Labor Day Mackay/', rni: 'Mackay', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
-        { day: '12', date: '2026-09-12', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
-        { day: '19', date: '2026-09-19', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
-        { day: '26', date: '2026-09-26', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
+        { day: '5-7', date: '2026-09-05', rni: 'Mackay', coa: null, detail: 'Labor Day' }, // COA OPEN
+        { day: '12', date: '2026-09-12', rni: null, coa: null }, // BOTH OPEN
+        { day: '19', date: '2026-09-19', rni: null, coa: null }, // BOTH OPEN
+        { day: '26', date: '2026-09-26', rni: null, coa: null }, // BOTH OPEN
     ],
-    // OCTOBER 2026 (Kandasamy/Travers/Yazdi/Carlo/Bhatia)
+    // OCTOBER 2026 (Kandasamy/Travers/Yazdi/Carlo/Bhatia) - Data confirmed
     '10': [
-        { day: '3', date: '2026-10-03', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
-        { day: '10', date: '2026-10-10', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
-        { day: '17', date: '2026-10-17', detail: 'Kandasamy/', rni: 'Kandasamy', coa: null }, // COA OPEN
-        { day: '24', date: '2026-10-24', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
-        { day: '31', date: '2026-10-31', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
+        { day: '3', date: '2026-10-03', rni: 'Kandasamy', coa: 'Carlo', isTaken: true },
+        { day: '10', date: '2026-10-10', rni: 'Travers', coa: 'Bhatia', isTaken: true },
+        { day: '17', date: '2026-10-17', rni: 'Kandasamy', coa: null }, // COA OPEN
+        { day: '24', date: '2026-10-24', rni: 'Travers', coa: 'Bhatia', isTaken: true },
+        { day: '31', date: '2026-10-31', rni: 'Kandasamy', coa: 'Carlo', isTaken: true },
     ],
-    // NOVEMBER 2026 (Ambal/Bhatia/Hightower/Black)
+    // NOVEMBER 2026 (Ambal/Bhatia/Hightower/Black) - Corrected: Thanksgiving COA is now OPEN
     '11': [
-        { day: '7', date: '2026-11-07', detail: 'Ambal/', rni: 'Ambal', coa: null }, // COA OPEN
-        { day: '14', date: '2026-11-14', detail: 'Bhatia', rni: 'Bhatia', coa: null }, // COA OPEN
-        { day: '21', date: '2026-11-21', detail: 'Ambal/', rni: 'Ambal', coa: null }, // COA OPEN
-        { day: '26-28', date: '2026-11-26', detail: 'Thanksgiving Bhatia/', rni: 'Bhatia', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
+        { day: '7', date: '2026-11-07', rni: 'Ambal', coa: null }, // COA OPEN
+        { day: '14', date: '2026-11-14', rni: 'Bhatia', coa: null }, // COA OPEN
+        { day: '21', date: '2026-11-21', rni: 'Ambal', coa: null }, // COA OPEN
+        // CORRECTED: COA is now null, isTaken is false (only RNI is assigned)
+        { day: '26-28', date: '2026-11-26', rni: 'Bhatia', coa: null, isTaken: false, detail: 'Thanksgiving' }, 
     ],
-    // DECEMBER 2026 (Travers/Valcarce/Kabani/Kandasamy)
+    // DECEMBER 2026 (Travers/Valcarce/Kabani/Kandasamy) - Data confirmed
     '12': [
-        { day: '5', date: '2026-12-05', detail: 'Travers/Kandasamy', rni: 'Travers', coa: 'Kandasamy' },
-        { day: '12', date: '2026-12-12', detail: 'Travers/Valcarce/Kabani/Kandasamy', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
-        { day: '19', date: '2026-12-19', detail: 'Travers/Kandasamy', rni: 'Travers', coa: 'Kandasamy' },
-        { day: '24-28', date: '2026-12-24', detail: 'Christmas Bhatia/Arora', rni: 'Bhatia', coa: 'Arora', isTaken: true }, // Holiday, fully taken
-        { day: '31-Jan 4', date: '2026-12-31', detail: 'New Year Kane/Kandasamy', rni: 'Kane', coa: 'Kandasamy', isTaken: true }, // Holiday, fully taken
+        { day: '5', date: '2026-12-05', rni: 'Travers', coa: 'Kandasamy', isTaken: true },
+        { day: '12', date: '2026-12-12', rni: null, coa: null }, // BOTH OPEN
+        { day: '19', date: '2026-12-19', rni: 'Travers', coa: 'Kandasamy', isTaken: true },
+        { day: '24-28', date: '2026-12-24', rni: 'Bhatia', coa: 'Arora', isTaken: true, detail: 'Christmas' }, 
+        { day: '31-Jan 4', date: '2026-12-31', rni: 'Kane', coa: 'Kandasamy', isTaken: true, detail: 'New Year\'s Eve' }, 
     ],
 };
 
 const getShiftMap = () => {
     let map = {};
     Object.values(rawShiftsByMonth).flat().forEach(s => {
-        const isRniOpen = s.rni === null || s.rni === 'OPEN';
-        const isCoaOpen = s.coa === null || s.coa === 'OPEN';
+        const isRniOpen = s.rni === null;
+        const isCoaOpen = s.coa === null;
         
         map[s.date] = {
             id: s.date,
@@ -151,7 +148,8 @@ const getShiftMap = () => {
             detail: s.detail,
             rniAttending: s.rni,
             coaAttending: s.coa,
-            isTaken: s.isTaken || (!isRniOpen && !isCoaOpen), // Taken if both slots are filled/holiday
+            // A shift is taken if it's explicitly marked as taken OR if neither service is open (e.g., both have names)
+            isTaken: s.isTaken || (!isRniOpen && !isCoaOpen),
             isRniAvailable: isRniOpen,
             isCoaAvailable: isCoaOpen,
         };
@@ -165,8 +163,7 @@ const getShiftMap = () => {
 
 const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUpdate }) => {
     const isSelected = currentPref.service === serviceType;
-    const currentRank = currentPref.rank;
-
+    
     // Options: None (0), Most (1-10), Least (1-10)
     const mostOptions = Array.from({ length: 10 }, (_, i) => ({ 
         label: `Most Pref. #${i + 1}`, 
@@ -233,6 +230,14 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
 
 
 const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPreferenceUpdate }) => {
+    
+    // Helper to get Attending text for the table cell
+    const getAttendingText = (attending, isOpen, service) => {
+        if (attending) return attending;
+        if (isOpen) return `${service} OPEN`;
+        return 'FILLED'; 
+    }
+
     return (
         <table className="w-full text-left border-collapse table-auto">
             <thead>
@@ -248,7 +253,6 @@ const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPr
                     const pref = preferences[shiftId] || { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
                     
                     let rowClass = index % 2 === 0 ? 'bg-gray-50' : 'bg-white';
-                    let assignmentText = '';
                     
                     const isRniOpen = shift.isRniAvailable;
                     const isCoaOpen = shift.isCoaAvailable;
@@ -259,17 +263,13 @@ const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPr
                     } else if (pref.type === 'least') {
                         rowClass += " !bg-rose-100 ring-2 ring-rose-300";
                     } else if (shift.isTaken) {
-                         rowClass += " opacity-75"; // Subtle opacity for filled shifts
+                         rowClass += " opacity-75"; 
                     }
                     
-                    // Construct assignment text
-                    if (shift.rniAttending || shift.coaAttending) {
-                        const rni = shift.rniAttending && shift.rniAttending !== 'Holiday' ? shift.rniAttending : (isRniOpen ? 'OPEN' : 'FILLED');
-                        const coa = shift.coaAttending && shift.coaAttending !== 'Holiday' ? shift.coaAttending : (isCoaOpen ? 'OPEN' : 'FILLED');
-                        assignmentText = `${rni} / ${coa}`;
-                    } else {
-                        assignmentText = shift.detail;
-                    }
+                    const rniText = getAttendingText(shift.rniAttending, isRniOpen, SERVICES.RNI);
+                    const coaText = getAttendingText(shift.coaAttending, isCoaOpen, SERVICES.COA);
+                    
+                    const assignmentText = `${rniText} / ${coaText}`;
 
 
                     return (
@@ -285,15 +285,15 @@ const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPr
                                 </span>
                                 
                                 {/* Show detail if it contains holiday info */}
-                                {shift.detail && (shift.detail.includes('Day') || shift.detail.includes('Year')) && (
+                                {shift.detail && (
                                     <span className="ml-2 text-xs italic text-orange-600">
-                                        ({shift.detail.split(' ')[0]})
+                                        ({shift.detail})
                                     </span>
                                 )}
                             </td>
                             {/* Preference Dropdown Column */}
                             <td className="w-1/4 p-1 space-y-1">
-                                {shift.isTaken ? (
+                                {shift.isTaken && !isRniOpen && !isCoaOpen ? (
                                     <div className="text-xs font-bold text-red-600 py-1 px-2 bg-red-100 rounded-md text-center shadow-inner">
                                         FULLY ASSIGNED
                                     </div>
@@ -311,14 +311,14 @@ const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPr
                                             <PreferenceSelector
                                                 shiftId={shiftId}
                                                 serviceType={SERVICES.COA}
-                                                currentPref={pref.service === SERVICES.COA ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 }}
+                                                currentPref={pref.service === SERVICES.COA ? pref : { service: SERVICES.COA ? pref.service === SERVICES.COA ? pref : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 } : { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 } }}
                                                 onUpdate={onPreferenceUpdate}
                                             />
                                         )}
-                                        {/* Fallback if data is marked as available but slots are filled */}
-                                        {!shift.isRniAvailable && !shift.isCoaAvailable && (
-                                             <div className="text-xs font-bold text-gray-500 py-1 px-2 bg-gray-200 rounded-md text-center shadow-inner">
-                                                No Open Slots
+                                        {/* Fallback if a slot should be open but isn't rendering (for debugging) */}
+                                        {!shift.isRniAvailable && !shift.isCoaAvailable && shift.isTaken && (
+                                             <div className="text-xs font-bold text-red-600 py-1 px-2 bg-red-100 rounded-md text-center shadow-inner">
+                                                FULLY ASSIGNED
                                             </div>
                                         )}
                                     </>
@@ -398,19 +398,18 @@ export default function App() {
         const unsubscribe = onSnapshot(ref, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                // Ensure loaded preferences are merged and only include valid shifts/services
                 setPreferences(data.preferences || {});
                 setLoadingMessage("Preferences loaded.");
             } else {
-                // Initialize only the available services for available shifts with 'none' preferences
+                // Initialize preferences structure in Firestore only if the document doesn't exist
                 const initialPrefs = Object.values(shiftMap).reduce((acc, shift) => {
+                     // Only shifts with at least one available slot need a preference entry
                     if (shift.isRniAvailable || shift.isCoaAvailable) {
-                         // The key is the date, but the value must contain the preferred service
-                         // We rely on the user to select the service on change.
                          acc[shift.id] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
                     }
                     return acc;
                 }, {});
+
                 setPreferences(initialPrefs);
                 setLoadingMessage("Ready to select preferences.");
                 
@@ -426,7 +425,6 @@ export default function App() {
     }, [isAuthReady, userId, shiftMap]);
 
     // --- 3. Interaction Logic ---
-    // shiftId: '2026-09-12', serviceType: 'RNI', type: 'most', rank: 1
     const handlePreferenceChange = useCallback((shiftId, serviceType, type, rank) => {
         setPreferences(prevPreferences => {
             const newPreferences = { ...prevPreferences };
@@ -448,7 +446,13 @@ export default function App() {
                 newPreferences[shiftId] = { service: serviceType, type, rank };
             } else {
                 // If selecting 'None', reset the preference for this shift
-                newPreferences[shiftId] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
+                // We only reset if the previous preference matched the service type being interacted with
+                if (newPreferences[shiftId] && newPreferences[shiftId].service === serviceType) {
+                    newPreferences[shiftId] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
+                } else if (!newPreferences[shiftId]) {
+                    // Create an empty entry if none exists
+                    newPreferences[shiftId] = { service: SERVICES.NONE, type: SERVICES.NONE, rank: 0 };
+                }
             }
             
             setSubmitStatus(''); // Clear status on successful change
@@ -465,6 +469,12 @@ export default function App() {
         let isValid = true;
         let validationMessage = "";
         
+        // Check for correct ranking ranges (1-10)
+        if (most.some(p => p.rank < 1 || p.rank > 10) || least.some(p => p.rank < 1 || p.rank > 10)) {
+            isValid = false;
+            validationMessage = "Ranks must be between 1 and 10.";
+        }
+
         // Check for unique ranks across ALL selected preferences
         const allRanks = activePreferences.map(p => `${p.type}-${p.rank}`);
         if (allRanks.length !== new Set(allRanks).size) {
@@ -472,12 +482,6 @@ export default function App() {
             validationMessage = "All ranks (Most #1-10, Least #1-10) must be unique across all shifts and services.";
         }
         
-        // Check for correct ranking ranges (1-10)
-        if (most.some(p => p.rank < 1 || p.rank > 10) || least.some(p => p.rank < 1 || p.rank > 10)) {
-            isValid = false;
-            validationMessage = "Ranks must be between 1 and 10.";
-        }
-
         return {
             mostCount: most.length,
             leastCount: least.length,
@@ -530,14 +534,10 @@ export default function App() {
     // --- RENDER ---
     const monthOrder = Object.keys(rawShiftsByMonth);
 
-    // Group months into two columns (6 months per column)
-    const column1Months = monthOrder.slice(0, 6);
-    const column2Months = monthOrder.slice(6);
-    
     // Helper to extract the month name and attending list from the raw data structure
     const getMonthTitle = (monthKey) => {
         const monthMap = {
-            '01': 'JANUARY (Kane/Winter/Hightower/Coghill)',
+            '01': 'JANUARY (Kane/Winter/Hightower/Coghill) - ALL OPEN',
             '02': 'FEBRUARY (Philips/Boone/Willis/Stoops/Kabani)',
             '03': 'MARCH (Valcarce/Ambal/Arora/Winter)',
             '04': 'APRIL (Sims/Kane/Black/Yazdi)',
@@ -547,7 +547,7 @@ export default function App() {
             '08': 'AUGUST (Boone/Sims/Summerlin/Carlo)',
             '09': 'SEPTEMBER (Mackay/Philips/Black/Stoops)',
             '10': 'OCTOBER (Kandasamy/Travers/Yazdi/Carlo/Bhatia)',
-            '11': 'NOVEMBER (Ambal/Bhatia/Hightower/Black)',
+            '11': 'NOVEMBER (Ambal/Bhatia/Hightower/Black) - 4 COA OPEN',
             '12': 'DECEMBER (Travers/Valcarce/Kabani/Kandasamy)',
         };
         return monthMap[monthKey] || 'TBD';
@@ -558,7 +558,7 @@ export default function App() {
         <div className="p-4 sm:p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-h-screen">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
             <p className="text-sm text-gray-600 mb-4">
-                Refined Tabular View | **Total Available Slots to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
+                Paired Calendar View | **Total Available Slots to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
             </p>
             
             <p className={`text-sm font-medium ${loadingMessage.includes('Error') ? 'text-red-600' : 'text-green-600'} mb-6`}>
@@ -568,7 +568,7 @@ export default function App() {
             {/* --- Count & Instructions Bar --- */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 p-4 bg-white shadow-lg rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 sm:mr-4 mb-4 sm:mb-0">
-                    **Instructions:** For **OPEN** shifts, select the service (RNI or COA) and then rank your preference. Ranks (1-10) must be unique across all selections.
+                    **Instructions:** For **OPEN** slots, select the service (RNI or COA) and then rank your preference (Most/Least). Ranks (1-10) must be unique across all selections.
                 </p>
                 <div className="flex-shrink-0 flex space-x-2">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold 
@@ -582,34 +582,39 @@ export default function App() {
                 </div>
             </div>
             
-            {/* --- TWO-COLUMN TABULAR VIEW --- */}
-            <div className="grid md:grid-cols-2 gap-6">
-                {/* Column 1: Jan - Jun */}
-                <div className="space-y-6">
-                    {column1Months.map(monthKey => (
-                        <MonthTable 
-                            key={monthKey}
-                            monthKey={monthKey}
-                            monthTitle={getMonthTitle(monthKey)}
-                            shifts={rawShiftsByMonth[monthKey]}
-                            preferences={preferences}
-                            onPreferenceUpdate={handlePreferenceChange}
-                        />
-                    ))}
-                </div>
-                
-                {/* Column 2: Jul - Dec */}
-                <div className="space-y-6">
-                    {column2Months.map(monthKey => (
-                        <MonthTable 
-                            key={monthKey}
-                            monthTitle={getMonthTitle(monthKey)}
-                            shifts={rawShiftsByMonth[monthKey]}
-                            preferences={preferences}
-                            onPreferenceUpdate={handlePreferenceChange}
-                        />
-                    ))}
-                </div>
+            {/* --- PAIRED TABULAR VIEW --- */}
+            <div className="space-y-6">
+                {monthOrder.map((_, index) => {
+                    // We only want to process every other month (index 0, 2, 4, etc.)
+                    if (index % 2 === 0) {
+                        const month1Key = monthOrder[index];
+                        const month2Key = monthOrder[index + 1];
+                        
+                        return (
+                            // Responsive grid: 1 column on small screens, 2 columns on medium/large screens
+                            <div key={month1Key} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <MonthTable 
+                                    monthKey={month1Key}
+                                    monthTitle={getMonthTitle(month1Key)}
+                                    shifts={rawShiftsByMonth[month1Key]}
+                                    preferences={preferences}
+                                    onPreferenceUpdate={handlePreferenceChange}
+                                />
+                                
+                                {month2Key && (
+                                    <MonthTable 
+                                        monthKey={month2Key}
+                                        monthTitle={getMonthTitle(month2Key)}
+                                        shifts={rawShiftsByMonth[month2Key]}
+                                        preferences={preferences}
+                                        onPreferenceUpdate={handlePreferenceChange}
+                                    />
+                                )}
+                            </div>
+                        );
+                    }
+                    return null;
+                })}
             </div>
 
 
