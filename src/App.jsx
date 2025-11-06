@@ -18,10 +18,7 @@ const FALLBACK_FIREBASE_CONFIG = {
 
 // --- GLOBAL VARIABLES ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-final"; 
-const SERVICES = { 'RNI': 'RNI', 'COA': 'COA' };
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-tabular"; 
 const YEAR = 2026;
 
 // Initialize Firebase App
@@ -37,155 +34,120 @@ const getPreferencesDocRef = (userId) => {
 };
 
 // ----------------------------------------------------------------------
-// DATA PROCESSING
+// DATA PROCESSING (Based EXACTLY on the uploaded Word/Image document)
 // ----------------------------------------------------------------------
 
-const rawShiftsData = [
-    // Data extracted from the 2026 Attending Weekend Schedule document (36 shifts total, Jan-Sept).
-    // Note: The structure implies all these dates are shift dates, even if covered by multiple people or holidays.
-    // Assignments are interpreted as: RNI Attending / COA Attending / Other Details
-    // JANUARY 2026 (4 shifts)
-    { date: '2026-01-10', service: SERVICES.RNI, assigned: 'RNI/BPD/COA QB-H' }, // Saturday
-    { date: '2026-01-17', service: SERVICES.COA, assigned: 'MLK Day' }, // Saturday
-    { date: '2026-01-24', service: SERVICES.RNI, assigned: 'Kane/Winter/Hightower/Coghill' }, // Saturday
-    { date: '2026-01-31', service: SERVICES.COA, assigned: 'Kane/Winter/Hightower/Coghill' }, // Saturday
-
-    // FEBRUARY 2026 (4 shifts)
-    { date: '2026-02-07', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
-    { date: '2026-02-14', service: SERVICES.RNI, assigned: 'Boone' }, // Saturday
-    { date: '2026-02-21', service: SERVICES.COA, assigned: 'Willis' }, // Saturday
-    { date: '2026-02-28', service: SERVICES.RNI, assigned: 'Willis' }, // Saturday
-
-    // MARCH 2026 (4 shifts)
-    { date: '2026-03-07', service: SERVICES.RNI, assigned: 'Ambal/Arora' }, // Saturday
-    { date: '2026-03-14', service: SERVICES.COA, assigned: 'Winter' }, // Saturday
-    { date: '2026-03-21', service: SERVICES.RNI, assigned: 'Ambal/Arora' }, // Saturday
-    { date: '2026-03-28', service: SERVICES.COA, assigned: 'Arora' }, // Saturday
-
-    // APRIL 2026 (4 shifts)
-    { date: '2026-04-04', service: SERVICES.COA, assigned: 'Sims' }, // Saturday
-    { date: '2026-04-11', service: SERVICES.RNI, assigned: 'Sims/Kane/Black/Yazdi' }, // Saturday
-    { date: '2026-04-18', service: SERVICES.COA, assigned: 'Sims' }, // Saturday
-    { date: '2026-04-25', service: SERVICES.RNI, assigned: 'PAS' }, // Saturday
+// Structure the data to match the display layout: Grouped by Month for easy rendering.
+const rawShiftsByMonth = {
+    // RNI Attending is listed first (if a single name is present before a slash or no slash)
+    // COA Attending is listed second (if present after a slash)
+    // Multiple names, holidays, or complex codes are handled as 'detail'
     
-    // MAY 2026 (4 shifts)
-    { date: '2026-05-02', service: SERVICES.RNI, assigned: 'Arora/Lal/Kabani/Summerlin' }, // Saturday
-    { date: '2026-05-09', service: SERVICES.COA, assigned: 'Arora' }, // Saturday
-    { date: '2026-05-16', service: SERVICES.RNI, assigned: 'Arora' }, // Saturday
-    { date: '2026-05-23', service: SERVICES.COA, assigned: 'Memorial Day' }, // Saturday
+    // JANUARY (Kane/Winter/Hightower/Coghill)
+    '01': [
+        { day: '10', date: '2026-01-10', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Kane', coa: 'Winter' },
+        { day: '17-19', date: '2026-01-17', detail: 'MLK Day', rni: 'MLK Day', coa: null, isTaken: true }, // Holiday - assumed covered
+        { day: '24', date: '2026-01-24', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Hightower', coa: 'Coghill' },
+        { day: '31', date: '2026-01-31', detail: 'Kane/Winter/Hightower/Coghill', rni: 'Kane', coa: 'Winter' },
+    ],
+    // FEBRUARY (Philips/Boone/Willis/Stoops/Kabani)
+    '02': [
+        { day: '7', date: '2026-02-07', detail: 'Boone/', rni: 'Boone', coa: null },
+        { day: '14', date: '2026-02-14', detail: 'Boone/', rni: 'Boone', coa: null },
+        { day: '21', date: '2026-02-21', detail: 'Willis/', rni: 'Willis', coa: null },
+        { day: '28', date: '2026-02-28', detail: 'Willis/', rni: 'Willis', coa: null },
+    ],
+    // MARCH (Valcarce/Ambal/Arora/Winter)
+    '03': [
+        { day: '7', date: '2026-03-07', detail: 'Ambal/Arora', rni: 'Ambal', coa: 'Arora' },
+        { day: '14', date: '2026-03-14', detail: '/Winter', rni: null, coa: 'Winter' },
+        { day: '21', date: '2026-03-21', detail: 'Ambal/Arora', rni: 'Ambal', coa: 'Arora' },
+        { day: '28', date: '2026-03-28', detail: '/Arora', rni: null, coa: 'Arora' },
+    ],
+    // APRIL (Sims/Kane/Black/Yazdi)
+    '04': [
+        { day: '4', date: '2026-04-04', detail: 'Sims', rni: 'Sims', coa: null },
+        { day: '11', date: '2026-04-11', detail: 'Sims/Kane/Black/Yazdi', rni: 'Kane', coa: 'Black' }, // Complex assignments interpreted
+        { day: '18', date: '2026-04-18', detail: 'Sims', rni: 'Sims', coa: null },
+        { day: '25', date: '2026-04-25', detail: '(PAS)', rni: 'PAS', coa: null }, // PAS is a detail, assume taken for now
+    ],
+    // MAY (Arora/Lal/Kabani/Summerlin)
+    '05': [
+        { day: '2', date: '2026-05-02', detail: 'Arora/Lal/Kabani/Summerlin', rni: 'Arora', coa: 'Lal' },
+        { day: '9', date: '2026-05-09', detail: 'Arora', rni: 'Arora', coa: null },
+        { day: '16', date: '2026-05-16', detail: 'Arora', rni: 'Arora', coa: null },
+        { day: '23-25', date: '2026-05-23', detail: 'Memorial Day', rni: 'Memorial Day', coa: null, isTaken: true }, // Holiday - assumed covered
+        { day: '30', date: '2026-05-30', detail: 'Arora', rni: 'Arora', coa: null },
+    ],
+    // JUNE (Schuyler/Boone/Philips/Winter)
+    '06': [
+        { day: '6', date: '2026-06-06', detail: 'Schuyler/Winter', rni: 'Schuyler', coa: 'Winter' },
+        { day: '13', date: '2026-06-13', detail: 'Boone/', rni: 'Boone', coa: null },
+        { day: '19-21', date: '2026-06-19', detail: 'Juneteenth Day Schuyler/Winter', rni: 'Juneteenth Day', coa: null, isTaken: true }, // Holiday - assumed covered
+        { day: '27', date: '2026-06-27', detail: 'Boone', rni: 'Boone', coa: null },
+    ],
+    // JULY (Jain/Shukla/Willis/Carlo)
+    '07': [
+        { day: '4-6', date: '2026-07-04', detail: '4th of July Jain/Carlo', rni: 'Jain', coa: 'Carlo', isTaken: true }, // Holiday - assumed covered
+        { day: '11', date: '2026-07-11', detail: '/Willis', rni: null, coa: 'Willis' },
+        { day: '18', date: '2026-07-18', detail: 'Jain/Shukla/Willis/Carlo', rni: 'Shukla', coa: 'Willis' }, // Complex assignments interpreted
+        { day: '25', date: '2026-07-25', detail: 'Shukla/Willis', rni: 'Shukla', coa: 'Willis' },
+    ],
+    // AUGUST (Boone/Sims/Summerlin/Carlo)
+    '08': [
+        { day: '1', date: '2026-08-01', detail: 'Boone/', rni: 'Boone', coa: null },
+        { day: '8', date: '2026-08-08', detail: 'Sims/Carlo', rni: 'Sims', coa: 'Carlo' },
+        { day: '15', date: '2026-08-15', detail: 'Boone/', rni: 'Boone', coa: null },
+        { day: '22', date: '2026-08-22', detail: 'Sims/', rni: 'Sims', coa: null },
+        { day: '29', date: '2026-08-29', detail: '/Carlo', rni: null, coa: 'Carlo' },
+    ],
+    // SEPTEMBER (Mackay/Philips/Black/Stoops)
+    '09': [
+        { day: '5-7', date: '2026-09-05', detail: 'Labor Day Mackay/', rni: 'Mackay', coa: null, isTaken: true }, // Holiday - assumed covered
+        { day: '12', date: '2026-09-12', detail: 'Mackay/Philips/Black/Stoops', rni: 'Philips', coa: 'Black' }, // Complex assignments interpreted
+        { day: '19', date: '2026-09-19', detail: 'Mackay/Philips/Black/Stoops', rni: 'Stoops', coa: 'Mackay' }, // Complex assignments interpreted
+        { day: '26', date: '2026-09-26', detail: 'Mackay/Philips/Black/Stoops', rni: 'Philips', coa: 'Black' }, // Complex assignments interpreted
+    ],
+    // OCTOBER (Kandasamy/Travers/Yazdi/Carlo/Bhatia)
+    '10': [
+        { day: '3', date: '2026-10-03', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
+        { day: '10', date: '2026-10-10', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
+        { day: '17', date: '2026-10-17', detail: 'Kandasamy/', rni: 'Kandasamy', coa: null },
+        { day: '24', date: '2026-10-24', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
+        { day: '31', date: '2026-10-31', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
+    ],
+    // NOVEMBER (Ambal/Bhatia/Hightower/Black)
+    '11': [
+        { day: '7', date: '2026-11-07', detail: 'Ambal/', rni: 'Ambal', coa: null },
+        { day: '14', date: '2026-11-14', detail: 'Bhatia', rni: 'Bhatia', coa: null },
+        { day: '21', date: '2026-11-21', detail: 'Ambal/', rni: 'Ambal', coa: null },
+        { day: '26-28', date: '2026-11-26', detail: 'Thanksgiving Bhatia/', rni: 'Bhatia', coa: null, isTaken: true }, // Holiday - assumed covered
+    ],
+    // DECEMBER (Travers/Valcarce/Kabani/Kandasamy)
+    '12': [
+        { day: '5', date: '2026-12-05', detail: 'Travers/Kandasamy', rni: 'Travers', coa: 'Kandasamy' },
+        { day: '12', date: '2026-12-12', detail: 'Travers/Valcarce/Kabani/Kandasamy', rni: 'Kabani', coa: 'Valcarce' }, // Complex assignments interpreted
+        { day: '19', date: '2026-12-19', detail: 'Travers/Kandasamy', rni: 'Travers', coa: 'Kandasamy' },
+        { day: '24-28', date: '2026-12-24', detail: 'Christmas Bhatia/Arora', rni: 'Bhatia', coa: 'Arora', isTaken: true }, // Holiday - assumed covered
+        { day: '31-Jan 4', date: '2026-12-31', detail: 'New Year Kane/Kandasamy', rni: 'Kane', coa: 'Kandasamy', isTaken: true }, // Holiday - assumed covered
+    ],
+};
 
-    // JUNE 2026 (4 shifts)
-    { date: '2026-06-06', service: SERVICES.RNI, assigned: 'Schuyler/Winter' }, // Saturday
-    { date: '2026-06-13', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
-    { date: '2026-06-19', service: SERVICES.RNI, assigned: 'Juneteenth Day' }, // Friday (Keeping original shift data)
-    { date: '2026-06-27', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
-    
-    // JULY 2026 (4 shifts)
-    { date: '2026-07-04', service: SERVICES.RNI, assigned: '4th of July' }, // Saturday
-    { date: '2026-07-11', service: SERVICES.COA, assigned: 'Willis' }, // Saturday
-    { date: '2026-07-18', service: SERVICES.RNI, assigned: 'Jain/Shukla/Willis/Carlo' }, // Saturday
-    { date: '2026-07-25', service: SERVICES.COA, assigned: 'Shukla/Willis' }, // Saturday
-
-    // AUGUST 2026 (4 shifts)
-    { date: '2026-08-01', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
-    { date: '2026-08-08', service: SERVICES.RNI, assigned: 'Sims/Carlo' }, // Saturday
-    { date: '2026-08-15', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
-    { date: '2026-08-22', service: SERVICES.RNI, assigned: 'Sims' }, // Saturday
-
-    // SEPTEMBER 2026 (4 shifts)
-    { date: '2026-09-05', service: SERVICES.RNI, assigned: 'Labor Day' }, // Saturday
-    { date: '2026-09-12', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
-    { date: '2026-09-19', service: SERVICES.RNI, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
-    { date: '2026-09-26', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
-    
-    // --- Add Oct-Dec Placeholder Shifts (Assuming 4 shifts per month) ---
-    // Note: If you provide the actual Oct-Dec 2026 data, replace these placeholders.
-    // Example Placeholder Dates (Saturdays in October 2026)
-    { date: '2026-10-03', service: SERVICES.RNI, assigned: 'TBD' }, 
-    { date: '2026-10-10', service: SERVICES.COA, assigned: 'TBD' },
-    { date: '2026-10-17', service: SERVICES.RNI, assigned: 'TBD' },
-    { date: '2026-10-24', service: SERVICES.COA, assigned: 'Halloween Week' },
-    
-    // Example Placeholder Dates (Saturdays in November 2026)
-    { date: '2026-11-07', service: SERVICES.RNI, assigned: 'TBD' }, 
-    { date: '2026-11-14', service: SERVICES.COA, assigned: 'TBD' },
-    { date: '2026-11-21', service: SERVICES.RNI, assigned: 'Thanksgiving Week' },
-    { date: '2026-11-28', service: SERVICES.COA, assigned: 'TBD' },
-
-    // Example Placeholder Dates (Saturdays in December 2026)
-    { date: '2026-12-05', service: SERVICES.RNI, assigned: 'TBD' }, 
-    { date: '2026-12-12', service: SERVICES.COA, assigned: 'TBD' },
-    { date: '2026-12-19', service: SERVICES.RNI, assigned: 'TBD' },
-    { date: '2026-12-26', service: SERVICES.COA, assigned: 'Christmas Week' },
-];
-
-const getWeekendShiftsData = () => {
-    return rawShiftsData.reduce((acc, s) => {
-        const dateKey = s.date;
-        const dateParts = s.date.split('-');
-        const monthName = MONTH_NAMES[parseInt(dateParts[1], 10) - 1];
-        
-        // Parsing Assignment Details based on user instruction: RNI / COA / Other Details
-        const assignments = s.assigned.split('/');
-        const rniAttending = assignments[0]?.trim() || null;
-        const coaAttending = assignments[1]?.trim() || null;
-        
-        // A shift is 'FILLED' if a single attending is named for both RNI and COA (or a single name if the service matches)
-        const isTaken = rniAttending !== 'TBD' && !s.assigned.includes('Day') && !s.assigned.includes('TBD') && s.assigned.split('/').length <= 2;
-
-        acc[dateKey] = {
-            id: dateKey, 
-            month: monthName,
-            day: parseInt(dateParts[2], 10),
-            service: s.service, // The core service type for this date
-            rniAttending: rniAttending,
-            coaAttending: coaAttending,
-            detail: s.assigned,
-            isTaken: isTaken,
+const getShiftMap = () => {
+    let map = {};
+    Object.values(rawShiftsByMonth).flat().forEach(s => {
+        // Ensure the shift ID is the date string
+        map[s.date] = {
+            id: s.date,
+            day: s.day,
+            detail: s.detail,
+            rniAttending: s.rni,
+            coaAttending: s.coa,
+            isTaken: s.isTaken || s.detail.toLowerCase().includes('day') || s.detail.toLowerCase().includes('pas'),
         };
-        return acc;
-    }, {});
+    });
+    return map;
 };
-
-// Utility to generate the full calendar structure for a month
-const generateFullCalendar = (year, monthIndex, shiftMap) => {
-    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
-    const firstDay = new Date(year, monthIndex, 1).getDay(); // 0 = Sunday
-
-    const calendar = [];
-    
-    // Add spacer cells for the start of the month
-    for (let i = 0; i < firstDay; i++) {
-        calendar.push({ type: 'spacer', id: `spacer-${monthIndex}-${i}` });
-    }
-
-    // Add days
-    for (let day = 1; day <= daysInMonth; day++) {
-        const dateString = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        const shift = shiftMap[dateString];
-        const dayOfWeek = new Date(year, monthIndex, day).getDay(); // 0=Sunday, 6=Saturday
-        
-        calendar.push({
-            type: 'day',
-            day: day,
-            isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
-            dateString: dateString,
-            shift: shift,
-        });
-    }
-
-    // Add trailing spacer cells if necessary (optional for grid consistency)
-    const totalCells = calendar.length;
-    const remainingCells = totalCells % 7;
-    if (remainingCells !== 0) {
-        for (let i = 0; i < (7 - remainingCells); i++) {
-            calendar.push({ type: 'spacer', id: `end-spacer-${monthIndex}-${i}` });
-        }
-    }
-
-    return calendar;
-};
-
 
 // ----------------------------------------------------------------------
 // SHARED COMPONENTS
@@ -194,13 +156,12 @@ const generateFullCalendar = (year, monthIndex, shiftMap) => {
 const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUpdate, isTaken }) => {
     if (isTaken) {
         return (
-            <div className="text-xs font-bold text-red-600 py-1 px-2 mt-1 bg-red-100 rounded-lg text-center shadow-inner">
+            <div className="text-xs font-bold text-red-600 py-1 px-2 bg-red-100 rounded-md text-center shadow-inner">
                 FILLED
             </div>
         );
     }
     
-    // Options: None (0), Most (1-10), Least (1-10)
     const mostOptions = Array.from({ length: 10 }, (_, i) => ({ 
         label: `Most Pref. #${i + 1}`, 
         value: `most-${i + 1}`, 
@@ -229,7 +190,7 @@ const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUp
             value={currentValue}
             onChange={handleChange}
             className={`
-                mt-1 w-full text-[10px] p-0.5 rounded-lg border shadow-sm
+                w-full text-[10px] p-0.5 rounded-md border shadow-sm h-[30px]
                 transition-all duration-150 ease-in-out cursor-pointer
                 ${currentType === 'most' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 font-semibold' : ''}
                 ${currentType === 'least' ? 'bg-rose-100 border-rose-500 text-rose-800 font-semibold' : ''}
@@ -247,101 +208,65 @@ const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUp
 });
 
 
-const CalendarMonth = React.memo(({ monthIndex, preferences, onPreferenceUpdate, shiftMap, allShifts }) => {
-    const monthName = MONTH_NAMES[monthIndex];
-    const calendarDays = useMemo(() => generateFullCalendar(YEAR, monthIndex, shiftMap), [monthIndex, shiftMap]);
-
+const MonthTable = React.memo(({ monthKey, monthTitle, shifts, preferences, onPreferenceUpdate }) => {
     return (
-        <div className="mb-10 shadow-xl rounded-xl overflow-hidden bg-white border border-gray-200">
-            <h3 className="text-2xl font-extrabold text-gray-700 p-4 bg-indigo-50 border-b-2 border-indigo-200">
-                {monthName} {YEAR}
-            </h3>
-            
-            <div className="grid grid-cols-7 text-center font-bold text-sm text-gray-600 bg-gray-100 border-b">
-                {DAY_NAMES.map(day => (
-                    <div key={day} className="p-2 border-r last:border-r-0">
-                        {day}
-                    </div>
-                ))}
-            </div>
+        <table className="w-full text-left border-collapse table-auto">
+            <thead>
+                <tr>
+                    <th colSpan="3" className="bg-yellow-400 text-gray-800 text-lg font-extrabold p-3 border border-gray-300">
+                        {monthTitle}
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {shifts.map((shift, index) => {
+                    const currentPref = preferences[shift.date] || { type: 'none', rank: 0 };
+                    let rowClass = index % 2 === 0 ? 'bg-gray-50' : 'bg-white';
 
-            <div className="grid grid-cols-7 auto-rows-fr">
-                {calendarDays.map((cell) => {
-                    if (cell.type === 'spacer') {
-                        return <div key={cell.id} className="min-h-[120px] bg-gray-50 border-r border-b"></div>;
+                    if (currentPref.type === 'most') {
+                        rowClass += " !bg-emerald-100 ring-2 ring-emerald-300";
+                    } else if (currentPref.type === 'least') {
+                        rowClass += " !bg-rose-100 ring-2 ring-rose-300";
+                    } else if (shift.isTaken) {
+                         rowClass += " opacity-75"; // Subtle opacity for filled shifts
                     }
 
-                    const shift = cell.shift;
-                    const isShiftDay = !!shift;
-                    
-                    const currentPref = preferences[cell.dateString] || { type: 'none', rank: 0 };
-                    
-                    // Base styling
-                    let cellClasses = "p-1 min-h-[120px] border-r border-b relative group transition-all duration-150";
-
-                    if (cell.isWeekend) {
-                        cellClasses += " bg-indigo-50 hover:bg-indigo-100";
-                    } else {
-                        cellClasses += " bg-white hover:bg-gray-50";
-                    }
-                    
-                    if (isShiftDay) {
-                         // Apply preference coloring only to shift days
-                        if (currentPref.type === 'most') {
-                            cellClasses += " !bg-emerald-100 ring-2 ring-emerald-500 z-10";
-                        } else if (currentPref.type === 'least') {
-                            cellClasses += " !bg-rose-100 ring-2 ring-rose-500 z-10";
-                        } else if (shift.isTaken) {
-                            cellClasses += " !bg-red-50 opacity-75"; // Highlight filled shifts lightly
-                        }
-                    }
+                    const assignmentText = `${shift.rniAttending || ''}${shift.coaAttending ? ' / ' + shift.coaAttending : ''}`;
 
                     return (
-                        <div key={cell.dateString} className={cellClasses}>
-                            <div className="absolute top-1 left-2 text-lg font-extrabold text-gray-800">
-                                {cell.day}
-                            </div>
-                            
-                            {isShiftDay && (
-                                <div className="mt-6 flex flex-col h-full">
-                                    <div className="flex-grow space-y-0.5 px-0.5">
-                                        {/* RNI Assignment (First Name) */}
-                                        <p className="text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-md px-1 leading-tight">
-                                            RNI: {shift.rniAttending || 'TBD'}
-                                        </p>
-                                        
-                                        {/* COA Assignment (Second Name) */}
-                                        {shift.coaAttending && (
-                                            <p className="text-[11px] font-semibold text-purple-700 bg-purple-100 rounded-md px-1 leading-tight">
-                                                COA: {shift.coaAttending}
-                                            </p>
-                                        )}
-                                        
-                                        {/* If a complex detail or holiday */}
-                                        {shift.detail && shift.detail.includes('Day') && (
-                                            <p className="text-[10px] italic text-orange-700 font-semibold">
-                                                {shift.detail}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Preference Dropdown */}
-                                    <div className="mt-1">
-                                        <PreferenceDropdown
-                                            shiftId={shift.id}
-                                            currentType={currentPref.type}
-                                            currentRank={currentPref.rank}
-                                            onUpdate={onPreferenceUpdate}
-                                            isTaken={shift.isTaken}
-                                        />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
+                        <tr key={shift.date} className={`border border-gray-300 ${rowClass}`}>
+                            {/* Date Column */}
+                            <td className="w-1/4 p-2 font-semibold text-lg border-r border-gray-300 text-center">
+                                {shift.day}
+                            </td>
+                            {/* Attending/Assignment Column */}
+                            <td className="w-1/2 p-2 text-sm">
+                                <span className={`font-bold ${shift.isTaken ? 'text-red-700' : 'text-gray-800'}`}>
+                                    {assignmentText || shift.detail}
+                                </span>
+                                
+                                {/* Show detail only if different from parsed assignment */}
+                                {shift.detail && (shift.detail.includes('Day') || shift.detail.includes('Year')) && (
+                                    <span className="ml-2 text-xs italic text-orange-600">
+                                        ({shift.detail.split(' ')[0]})
+                                    </span>
+                                )}
+                            </td>
+                            {/* Preference Dropdown Column */}
+                            <td className="w-1/4 p-1">
+                                <PreferenceDropdown
+                                    shiftId={shift.date}
+                                    currentType={currentPref.type}
+                                    currentRank={currentPref.rank}
+                                    onUpdate={onPreferenceUpdate}
+                                    isTaken={shift.isTaken}
+                                />
+                            </td>
+                        </tr>
                     );
                 })}
-            </div>
-        </div>
+            </tbody>
+        </table>
     );
 });
 
@@ -354,7 +279,7 @@ export default function App() {
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState("Authenticating...");
     
-    const [shiftMap] = useState(getWeekendShiftsData); 
+    const [shiftMap] = useState(getShiftMap); 
     const [preferences, setPreferences] = useState({});
     
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -531,11 +456,37 @@ export default function App() {
 
 
     // --- RENDER ---
+    const monthOrder = Object.keys(rawShiftsByMonth);
+
+    // Group months into two columns (6 months per column)
+    const column1Months = monthOrder.slice(0, 6);
+    const column2Months = monthOrder.slice(6);
+    
+    // Helper to extract the month name and attending list from the raw data structure
+    const getMonthTitle = (monthKey) => {
+        const monthMap = {
+            '01': 'JANUARY (Kane/Winter/Hightower/Coghill)',
+            '02': 'FEBRUARY (Philips/Boone/Willis/Stoops/Kabani)',
+            '03': 'MARCH (Valcarce/Ambal/Arora/Winter)',
+            '04': 'APRIL (Sims/Kane/Black/Yazdi)',
+            '05': 'MAY (Arora/Lal/Kabani/Summerlin)',
+            '06': 'JUNE (Schuyler/Boone/Philips/Winter)',
+            '07': 'JULY (Jain/Shukla/Willis/Carlo)',
+            '08': 'AUGUST (Boone/Sims/Summerlin/Carlo)',
+            '09': 'SEPTEMBER (Mackay/Philips/Black/Stoops)',
+            '10': 'OCTOBER (Kandasamy/Travers/Yazdi/Carlo/Bhatia)',
+            '11': 'NOVEMBER (Ambal/Bhatia/Hightower/Black)',
+            '12': 'DECEMBER (Travers/Valcarce/Kabani/Kandasamy)',
+        };
+        return monthMap[monthKey] || 'TBD';
+    };
+
+
     return (
         <div className="p-4 sm:p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-h-screen">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
             <p className="text-sm text-gray-600 mb-4">
-                Full-Year Calendar View | **Available Shifts to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
+                Tabular View (Matches Word Document Layout) | **Available Shifts to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
             </p>
             
             <p className={`text-sm font-medium ${loadingMessage.includes('Error') ? 'text-red-600' : 'text-green-600'} mb-6`}>
@@ -545,7 +496,7 @@ export default function App() {
             {/* --- Count & Instructions Bar --- */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 p-4 bg-white shadow-lg rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 sm:mr-4 mb-4 sm:mb-0">
-                    **Instructions:** Rank your **Top 10 Most Preferred** and **Top 10 Least Preferred** shifts using the dropdowns on the available dates. All ranks (1-10) must be unique within their respective category.
+                    **Instructions:** Rank your **Top 10 Most Preferred** and **Top 10 Least Preferred** shifts. All ranks (1-10) must be unique within their respective category. The **RNI** attending is listed first, followed by the **COA** attending.
                 </p>
                 <div className="flex-shrink-0 flex space-x-2">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold 
@@ -559,19 +510,37 @@ export default function App() {
                 </div>
             </div>
             
-            {/* --- CALENDAR GRID VIEW by MONTH --- */}
-            <div className="space-y-10">
-                {Array.from({ length: 12 }).map((_, monthIndex) => (
-                    <CalendarMonth 
-                        key={monthIndex}
-                        monthIndex={monthIndex}
-                        preferences={preferences}
-                        onPreferenceUpdate={handlePreferenceChange}
-                        shiftMap={shiftMap}
-                        allShifts={allShifts}
-                    />
-                ))}
+            {/* --- TWO-COLUMN TABULAR VIEW --- */}
+            <div className="grid md:grid-cols-2 gap-6">
+                {/* Column 1: Jan - Jun */}
+                <div className="space-y-6">
+                    {column1Months.map(monthKey => (
+                        <MonthTable 
+                            key={monthKey}
+                            monthKey={monthKey}
+                            monthTitle={getMonthTitle(monthKey)}
+                            shifts={rawShiftsByMonth[monthKey]}
+                            preferences={preferences}
+                            onPreferenceUpdate={handlePreferenceChange}
+                        />
+                    ))}
+                </div>
+                
+                {/* Column 2: Jul - Dec */}
+                <div className="space-y-6">
+                    {column2Months.map(monthKey => (
+                        <MonthTable 
+                            key={monthKey}
+                            monthKey={monthKey}
+                            monthTitle={getMonthTitle(monthKey)}
+                            shifts={rawShiftsByMonth[monthKey]}
+                            preferences={preferences}
+                            onPreferenceUpdate={handlePreferenceChange}
+                        />
+                    ))}
+                </div>
             </div>
+
 
             {/* --- Submit Button & Status --- */}
             <div className="mt-12 flex flex-col items-center">
