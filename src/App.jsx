@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, query, onSnapshot, runTransaction, where, getDocs } from 'firebase/firestore';
-
-// ... rest of your Firebase config and the App component ...
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore'; 
 
 // ----------------------------------------------------------------------
-// *** ACTION REQUIRED: REPLACE THESE PLACEHOLDERS WITH YOUR OWN KEYS ***
+// FIX FOR REFERENCE ERROR: Declaring FALLBACK_FIREBASE_CONFIG first
 // ----------------------------------------------------------------------
-
-// 1. PASTE YOUR FIREBASE WEB APP CONFIGURATION OBJECT HERE
 const YOUR_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
     authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -19,13 +15,6 @@ const YOUR_FIREBASE_CONFIG = {
     appId: "1:777996986623:web:0a8697cccb63149d9744ca",
     measurementId: "G-TJXCM9P7W2"
 };
-
-
-// ----------------------------------------------------------------------
-// NOTE: Firebase Config and Auth Token are provided by the environment.
-// The fallback config below is for development testing only.
-// ----------------------------------------------------------------------
-
 
 // --- GLOBAL VARIABLES ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
@@ -410,7 +399,7 @@ export default function App() {
 
                 return (
                     <div key={monthName} className="mb-8">
-                        <h3 className="text-2xl font-bold text-gray-700 mb-4 border-b-2 border-indigo-200 pb-2">{monthName} 2026</h3>
+                        <h3 className="text-2xl font-bold text-gray-700 mb-4 border-b-2 border-indigo-200 pb-2">{monthName} 2026}</h3>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                             {shifts.map((shift) => {
                                 const currentPref = preferences[shift.id] || { type: 'none', rank: 0 };
