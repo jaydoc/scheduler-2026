@@ -105,14 +105,14 @@ const rawShiftsByMonth = {
         { day: '22', date: '2026-08-22', detail: 'Sims/', rni: 'Sims', coa: null }, // COA OPEN
         { day: '29', date: '2026-08-29', detail: '/Carlo', rni: null, coa: 'Carlo' }, // RNI OPEN
     ],
-    // SEPTEMBER 2026 (Assigned Attending List: Mackay/Philips/Black/Stoops)
+    // SEPTEMBER 2026 (Mackay/Philips/Black/Stoops)
     '09': [
         { day: '5-7', date: '2026-09-05', detail: 'Labor Day Mackay/', rni: 'Mackay', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
         { day: '12', date: '2026-09-12', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
         { day: '19', date: '2026-09-19', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
         { day: '26', date: '2026-09-26', detail: 'Mackay/Philips/Black/Stoops', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
     ],
-    // OCTOBER 2026 (Assigned Attending List: Kandasamy/Travers/Yazdi/Carlo/Bhatia)
+    // OCTOBER 2026 (Kandasamy/Travers/Yazdi/Carlo/Bhatia)
     '10': [
         { day: '3', date: '2026-10-03', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
         { day: '10', date: '2026-10-10', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
@@ -120,14 +120,14 @@ const rawShiftsByMonth = {
         { day: '24', date: '2026-10-24', detail: 'Travers/Bhatia', rni: 'Travers', coa: 'Bhatia' },
         { day: '31', date: '2026-10-31', detail: 'Kandasamy/Carlo', rni: 'Kandasamy', coa: 'Carlo' },
     ],
-    // NOVEMBER 2026 (Assigned Attending List: Ambal/Bhatia/Hightower/Black)
+    // NOVEMBER 2026 (Ambal/Bhatia/Hightower/Black)
     '11': [
         { day: '7', date: '2026-11-07', detail: 'Ambal/', rni: 'Ambal', coa: null }, // COA OPEN
         { day: '14', date: '2026-11-14', detail: 'Bhatia', rni: 'Bhatia', coa: null }, // COA OPEN
         { day: '21', date: '2026-11-21', detail: 'Ambal/', rni: 'Ambal', coa: null }, // COA OPEN
         { day: '26-28', date: '2026-11-26', detail: 'Thanksgiving Bhatia/', rni: 'Bhatia', coa: 'Holiday', isTaken: true }, // Holiday, fully taken
     ],
-    // DECEMBER 2026 (Assigned Attending List: Travers/Valcarce/Kabani/Kandasamy)
+    // DECEMBER 2026 (Travers/Valcarce/Kabani/Kandasamy)
     '12': [
         { day: '5', date: '2026-12-05', detail: 'Travers/Kandasamy', rni: 'Travers', coa: 'Kandasamy' },
         { day: '12', date: '2026-12-12', detail: 'Travers/Valcarce/Kabani/Kandasamy', rni: null, coa: null, isAvailable: true }, // BOTH OPEN
@@ -187,15 +187,20 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
         : 'none';
     
     // Determine button text and styling
-    const buttonText = isSelected 
-        ? `${serviceType}: ${currentPref.type === 'most' ? 'M#' : 'L#'}${currentRank}` 
-        : serviceType;
-        
-    let buttonClass = "w-1/2 p-1 text-xs font-semibold rounded-md border transition-colors duration-150 shadow-sm";
-    if (serviceType === SERVICES.RNI) {
-        buttonClass += isSelected ? " bg-blue-600 text-white border-blue-800 hover:bg-blue-700" : " bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200";
-    } else { // COA
-        buttonClass += isSelected ? " bg-purple-600 text-white border-purple-800 hover:bg-purple-700" : " bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200";
+    let selectClass = `
+        w-full text-[10px] p-0.5 rounded-md border shadow-sm h-[30px]
+        transition-all duration-150 ease-in-out cursor-pointer
+        focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500
+    `;
+
+    if (currentPref.type === 'most') {
+        selectClass += ' bg-emerald-100 border-emerald-500 text-emerald-800 font-semibold';
+    } else if (currentPref.type === 'least') {
+        selectClass += ' bg-rose-100 border-rose-500 text-rose-800 font-semibold';
+    } else if (isSelected) {
+        selectClass += ' bg-yellow-100 border-yellow-500 text-yellow-800';
+    } else {
+        selectClass += ' bg-white border-gray-300 text-gray-700';
     }
 
 
@@ -210,14 +215,7 @@ const PreferenceSelector = React.memo(({ shiftId, serviceType, currentPref, onUp
         <select
             value={currentValue}
             onChange={handleChange}
-            className={`
-                w-full text-[10px] p-0.5 rounded-md border shadow-sm h-[30px]
-                transition-all duration-150 ease-in-out cursor-pointer
-                ${currentPref.type === 'most' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 font-semibold' : ''}
-                ${currentPref.type === 'least' ? 'bg-rose-100 border-rose-500 text-rose-800 font-semibold' : ''}
-                ${currentPref.type === 'none' && isSelected ? 'bg-yellow-100 border-yellow-500 text-yellow-800' : 'bg-white border-gray-300 text-gray-700'}
-                focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500
-            `}
+            className={selectClass}
         >
             <option value="none">
                 {isSelected ? `Selected ${serviceType}: Reset/Rank` : `Select ${serviceType}`}
@@ -606,7 +604,7 @@ export default function App() {
                             monthTitle={getMonthTitle(monthKey)}
                             shifts={rawShiftsByMonth[monthKey]}
                             preferences={preferences}
-                            onPreferenceUpdate={handlePreferenceUpdate}
+                            onPreferenceUpdate={handlePreferenceChange} {/* <-- FIX: Changed from handlePreferenceUpdate to handlePreferenceChange */}
                         />
                     ))}
                 </div>
