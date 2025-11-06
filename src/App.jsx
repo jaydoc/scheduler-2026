@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, onSnapshot, getDoc, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
 
 /* ----------------------------------------------------------------------
-   Firebase config & constants (kept compatible with your current file)
+   Firebase config (kept flexible to your existing setup)
    ---------------------------------------------------------------------- */
 const firebaseConfig = (() => {
-  const FALLBACK_CONFIG = {
+  const FALLBACK = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
     authDomain: "attending-schedule-2026.firebaseapp.com",
     projectId: "attending-schedule-2026",
@@ -17,28 +17,25 @@ const firebaseConfig = (() => {
     measurementId: "G-TJXCM9P7W2"
   };
   if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    try { return JSON.parse(__firebase_config); } catch { return FALLBACK_CONFIG; }
+    try { return JSON.parse(__firebase_config); } catch { return FALLBACK; }
   }
-  return FALLBACK_CONFIG;
+  return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-paired";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
 const auth = getAuth(app);
+const db = getFirestore(app);
 
-const getPreferencesDocRef = (userId) => {
-  const userPrefs = collection(db, 'artifacts', appId, 'users', userId, 'preferences');
-  return doc(userPrefs, 'calendar-preferences');
-};
+const prefsDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
 
 /* ----------------------------------------------------------------------
-   Your existing 2026 calendar data (unchanged)
+   Your month->weekend data (keep in sync with your source)
    ---------------------------------------------------------------------- */
-const rawShiftsByMonth = {
+const months = {
   '01': [
     { day: '10', date: '2026-01-10', rni: null, coa: null },
     { day: '17-19', date: '2026-01-17', rni: null, coa: null, detail: 'MLK Day' },
@@ -117,27 +114,28 @@ const rawShiftsByMonth = {
   ],
 };
 
-const getShiftMap = () => {
-  const map = {};
-  Object.values(rawShiftsByMonth).flat().forEach(s => {
-    const isRniOpen = s.rni === null;
-    const isCoaOpen = s.coa === null;
-    map[s.date] = {
-      id: s.date,
-      day: s.day,
-      detail: s.detail,
-      rniAttending: s.rni,
-      coaAttending: s.coa,
-      isTaken: s.isTaken || (!isRniOpen && !isCoaOpen),
-      isRniAvailable: isRniOpen,
-      isCoaAvailable: isCoaOpen,
-    };
-  });
-  return map;
-};
+// flatten for order mapping
+const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
 /* ----------------------------------------------------------------------
-   UI helpers
+   Preference model:
+   prefs[weekendId] = {
+     mostService: 'RNI'|'COA'|'none',
+     mostRank: 0..10,
+     leastService: 'RNI'|'COA'|'none',  // NEW: optional service for least
+     leastRank: 0..10
+   }
+   ---------------------------------------------------------------------- */
+function initEmptyPrefs() {
+  const base = {};
+  allWeekendIds.forEach(id => {
+    base[id] = { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
+  });
+  return base;
+}
+
+/* ----------------------------------------------------------------------
+   Small UI helpers
    ---------------------------------------------------------------------- */
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
 const btn = (kind = 'white', disabled = false) => {
@@ -147,117 +145,112 @@ const btn = (kind = 'white', disabled = false) => {
   return base;
 };
 
-/* ----------------------------------------------------------------------
-   New selectors: 
-   - MostSelector: requires service + rank 1–10 (service = RNI or COA)
-   - LeastSelector: rank 1–10 only (service-agnostic)
-   ---------------------------------------------------------------------- */
-function MostSelector({ disabled, value, onChange }) {
-  // value = { service: 'RNI'|'COA'|'none', rank: 0..10 }
+function RadioService({ value, onChange, disabled, name }) {
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-      <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
-        <input type="radio" disabled={disabled} checked={value.service === SERVICES.RNI} onChange={() => onChange({ ...value, service: SERVICES.RNI })} />
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <input type="radio" disabled={disabled} checked={value === SERVICES.RNI} onChange={() => onChange(SERVICES.RNI)} name={name} />
         RNI
       </label>
-      <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
-        <input type="radio" disabled={disabled} checked={value.service === SERVICES.COA} onChange={() => onChange({ ...value, service: SERVICES.COA })} />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <input type="radio" disabled={disabled} checked={value === SERVICES.COA} onChange={() => onChange(SERVICES.COA)} name={name} />
         COA
       </label>
-      <select
-        disabled={disabled || value.service === SERVICES.NONE}
-        value={String(value.rank || 0)}
-        onChange={e => onChange({ ...value, rank: parseInt(e.target.value, 10) })}
-        style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 10 }}
-      >
-        <option value="0">Most rank…</option>
-        {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
-      {value.rank > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{value.rank}</span>}
-      <button onClick={() => onChange({ service: SERVICES.NONE, rank: 0 })} disabled={disabled} style={btn('white', disabled)}>Clear</button>
     </div>
   );
 }
 
-function LeastSelector({ disabled, rank, onChange }) {
+function RankSelect({ value, onChange, disabled, placeholder }) {
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <select
-        disabled={disabled}
-        value={String(rank || 0)}
-        onChange={e => onChange(parseInt(e.target.value, 10))}
-        style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 10 }}
-      >
-        <option value="0">Least rank…</option>
-        {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
-      </select>
-      {rank > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{rank}</span>}
-      {rank > 0 && <button onClick={() => onChange(0)} disabled={disabled} style={btn('white', disabled)}>Clear</button>}
-    </div>
+    <select
+      disabled={disabled}
+      value={String(value || 0)}
+      onChange={e => onChange(parseInt(e.target.value, 10))}
+      style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 10 }}
+    >
+      <option value="0">{placeholder}</option>
+      {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+    </select>
   );
 }
 
 /* ----------------------------------------------------------------------
-   Month table (uses new selectors)
+   Month card
    ---------------------------------------------------------------------- */
-const MonthTable = React.memo(({ monthTitle, shifts, prefs, onMostChange, onLeastChange }) => {
+function MonthCard({ label, items, prefs, onMostChange, onLeastChange }) {
   return (
     <div className="bg-white shadow-xl rounded-2xl overflow-hidden border border-gray-200">
       <h2 className="bg-yellow-400 text-gray-800 text-md sm:text-lg font-extrabold p-3 text-center border-b-2 border-yellow-500">
-        {monthTitle}
+        {label}
       </h2>
-      <div className="p-3 space-y-4">
-        {shifts.map(shift => {
-          const shiftId = shift.date;
-          const p = prefs[shiftId] || { mostService: SERVICES.NONE, mostRank: 0, leastRank: 0 };
-          const fullyAssigned = shift.isTaken;
-          const rniOpen = shift.rni === null;
-          const coaOpen = shift.coa === null;
+      <div className="p-3 space-y-3">
+        {items.map(w => {
+          const p = prefs[w.date] || { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
+          const rniOpen = w.rni === null;
+          const coaOpen = w.coa === null;
+          const fullyAssigned = w.isTaken || (!rniOpen && !coaOpen);
 
           return (
-            <div key={shiftId} className={`p-3 rounded-lg border-2 ${fullyAssigned ? 'bg-gray-100 border-gray-300 opacity-70' : 'bg-white border-gray-200 hover:border-blue-400'}`}>
-              {/* Header */}
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-xl font-bold text-gray-900">{shift.day}</span>
-                {shift.detail && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">{shift.detail}</span>}
+            <div key={w.date} className={`p-3 rounded-xl border ${fullyAssigned ? 'bg-gray-50 border-gray-200 opacity-70' : 'bg-white border-gray-200'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-lg font-bold text-gray-900">{w.day}</div>
+                {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
               </div>
 
-              {/* Status */}
-              <div className="mb-3 text-sm font-mono space-y-1">
-                <div className={`px-2 py-1 rounded-md ${rniOpen ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>
-                  <span className="font-bold">RNI:</span> {rniOpen ? 'OPEN' : shift.rni}
-                </div>
-                <div className={`px-2 py-1 rounded-md ${coaOpen ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'}`}>
-                  <span className="font-bold">COA:</span> {coaOpen ? 'OPEN' : shift.coa}
-                </div>
+              {/* service availability note */}
+              <div className="text-xs text-gray-600 mb-2">
+                <span className={`px-2 py-0.5 rounded-md mr-2 ${rniOpen ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'}`}>RNI: {rniOpen ? 'OPEN' : w.rni}</span>
+                <span className={`px-2 py-0.5 rounded-md ${coaOpen ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-200 text-gray-700'}`}>COA: {coaOpen ? 'OPEN' : w.coa}</span>
               </div>
 
-              {/* Most + Least */}
-              {fullyAssigned ? (
-                <div className="text-xs font-bold text-red-700 py-2 px-2 bg-red-100 rounded-md text-center shadow-inner">
-                  FULLY ASSIGNED — NO RANKING AVAILABLE
+              {!fullyAssigned ? (
+                <div className="grid gap-3">
+                  {/* MOST */}
+                  <div className="rounded-lg border p-2">
+                    <div className="text-xs font-semibold mb-1">Most (required: service + rank)</div>
+                    <div className="flex flex-wrap gap-8 items-center">
+                      <RadioService
+                        disabled={false}
+                        value={p.mostService}
+                        onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
+                        name={`most-${w.date}`}
+                      />
+                      <RankSelect
+                        disabled={p.mostService === SERVICES.NONE}
+                        value={p.mostRank}
+                        onChange={(rank) => onMostChange(w.date, { ...p, mostRank: rank })}
+                        placeholder="Most rank…"
+                      />
+                      {p.mostService !== SERVICES.NONE && p.mostRank > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostRank}</span>}
+                      {p.mostService !== SERVICES.NONE && !(p.mostService === SERVICES.RNI ? rniOpen : coaOpen) && (
+                        <span className="text-xs text-amber-700">Selected service isn’t open for this weekend.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* LEAST */}
+                  <div className="rounded-lg border p-2">
+                    <div className="text-xs font-semibold mb-1">Least (rank required; service optional)</div>
+                    <div className="flex flex-wrap gap-8 items-center">
+                      <RadioService
+                        disabled={false}
+                        value={p.leastService}
+                        onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
+                        name={`least-${w.date}`}
+                      />
+                      <RankSelect
+                        disabled={false}
+                        value={p.leastRank}
+                        onChange={(rank) => onLeastChange(w.date, { ...p, leastRank: rank })}
+                        placeholder="Least rank…"
+                      />
+                      {p.leastRank > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastRank}</span>}
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <div className="text-xs font-semibold mb-1">Most (pick service + rank)</div>
-                    <MostSelector
-                      disabled={(!rniOpen && !coaOpen)}
-                      value={{ service: p.mostService, rank: p.mostRank }}
-                      onChange={(val) => onMostChange(shiftId, val)}
-                    />
-                    {p.mostService !== SERVICES.NONE && !(p.mostService === SERVICES.RNI ? rniOpen : coaOpen) && (
-                      <div className="mt-1 text-xs text-amber-700">Selected service is not open for this weekend.</div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold mb-1">Least (rank only)</div>
-                    <LeastSelector
-                      disabled={false}
-                      rank={p.leastRank}
-                      onChange={(rank) => onLeastChange(shiftId, rank)}
-                    />
-                  </div>
+                <div className="text-xs font-bold text-red-700 py-2 px-2 bg-red-100 rounded-md text-center shadow-inner">
+                  FULLY ASSIGNED — NO RANKING AVAILABLE
                 </div>
               )}
             </div>
@@ -266,87 +259,57 @@ const MonthTable = React.memo(({ monthTitle, shifts, prefs, onMostChange, onLeas
       </div>
     </div>
   );
-});
+}
 
 /* ----------------------------------------------------------------------
-   Main App
+   App (2 columns x 6 rows of month cards)
    ---------------------------------------------------------------------- */
 export default function App() {
-  const shiftMap = useMemo(getShiftMap, []);
-  const [userId, setUserId] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [uid, setUid] = useState(null);
   const [status, setStatus] = useState('Authenticating…');
-
-  // preferences shape: { [shiftId]: { mostService: 'RNI'|'COA'|'none', mostRank: 0..10, leastRank: 0..10 } }
-  const [prefs, setPrefs] = useState({});
-
-  const monthOrder = Object.keys(rawShiftsByMonth);
-  const monthTitle = (mk) => {
-    const monthMap = {
-      '01': 'JANUARY', '02': 'FEBRUARY', '03': 'MARCH', '04': 'APRIL',
-      '05': 'MAY', '06': 'JUNE', '07': 'JULY', '08': 'AUGUST',
-      '09': 'SEPTEMBER', '10': 'OCTOBER', '11': 'NOVEMBER', '12': 'DECEMBER',
-    };
-    return `${monthMap[mk] || 'TBD'} ${YEAR}`;
-  };
+  const [prefs, setPrefs] = useState(initEmptyPrefs());
 
   // auth
   useEffect(() => {
-    const init = async () => {
+    (async () => {
       try {
         const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         if (token) await signInWithCustomToken(auth, token);
         else await signInAnonymously(auth);
         onAuthStateChanged(auth, (u) => {
-          if (u) setUserId(u.uid);
-          setAuthReady(true);
+          if (u) setUid(u.uid);
+          setStatus('Loading preferences…');
         });
       } catch (e) {
         console.error(e);
         setStatus(`Auth error: ${e.message}`);
-        setAuthReady(true);
       }
-    };
-    init();
+    })();
   }, []);
 
-  // load or initialize
+  // load if exists
   useEffect(() => {
-    if (!authReady || !userId) return;
-    const ref = getPreferencesDocRef(userId);
-    setStatus('Loading preferences…');
+    if (!uid) return;
     (async () => {
       try {
-        const snap = await getDoc(ref);
+        const snap = await getDoc(prefsDocRef(uid));
         if (snap.exists()) {
-          const data = snap.data();
-          // migrate old shape if needed
-          if (data.top10 && data.bottom10) {
-            const next = { ...prefs };
-            data.top10.forEach(t => {
-              next[t.weekend] = { mostService: t.service, mostRank: t.rank, leastRank: (next[t.weekend]?.leastRank || 0) };
+          const d = snap.data();
+          if (d.preferences) {
+            // migrate if missing new keys
+            const next = { ...initEmptyPrefs(), ...d.preferences };
+            setPrefs(next);
+          } else if (d.top10 || d.bottom10) {
+            // legacy arrays -> fold into map
+            const next = initEmptyPrefs();
+            (d.top10 || []).forEach(t => {
+              next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostRank: t.rank || 0 };
             });
-            data.bottom10.forEach(b => {
-              next[b.weekend] = { mostService: (next[b.weekend]?.mostService || SERVICES.NONE), mostRank: (next[b.weekend]?.mostRank || 0), leastRank: b.rank };
+            (d.bottom10 || []).forEach(b => {
+              next[b.weekend] = { ...next[b.weekend], leastService: (b.service || SERVICES.NONE), leastRank: b.rank || 0 };
             });
             setPrefs(next);
-          } else if (data.preferences) {
-            // legacy service-bound map -> convert
-            const next = {};
-            for (const [id, p] of Object.entries(data.preferences)) {
-              next[id] = {
-                mostService: p.type === 'most' ? (p.service || SERVICES.NONE) : SERVICES.NONE,
-                mostRank: p.type === 'most' ? (p.rank || 0) : 0,
-                leastRank: p.type === 'least' ? (p.rank || 0) : 0,
-              };
-            }
-            setPrefs(next);
-          } else {
-            setPrefs(initEmpty());
           }
-        } else {
-          setPrefs(initEmpty());
-          await setDoc(ref, { preferences: {}, createdAt: serverTimestamp() }, { merge: true });
         }
         setStatus('Ready.');
       } catch (e) {
@@ -354,143 +317,90 @@ export default function App() {
         setStatus(`Load error: ${e.message}`);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authReady, userId]);
+  }, [uid]);
 
-  const initEmpty = () => {
-    const base = {};
-    for (const s of Object.values(shiftMap)) {
-      base[s.id] = { mostService: SERVICES.NONE, mostRank: 0, leastRank: 0 };
-    }
-    return base;
-  };
-
-  // changes
-  const onMostChange = useCallback((shiftId, val) => {
-    setPrefs(prev => {
-      const next = { ...prev, [shiftId]: { ...(prev[shiftId] || { mostService: SERVICES.NONE, mostRank: 0, leastRank: 0 }), ...{ mostService: val.service, mostRank: val.rank || 0 } } };
-      return next;
-    });
+  const setMost = useCallback((id, v) => {
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostRank: v.mostRank } }));
+  }, []);
+  const setLeast = useCallback((id, v) => {
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
   }, []);
 
-  const onLeastChange = useCallback((shiftId, rank) => {
-    setPrefs(prev => {
-      const next = { ...prev, [shiftId]: { ...(prev[shiftId] || { mostService: SERVICES.NONE, mostRank: 0, leastRank: 0 }), leastRank: rank || 0 } };
-      return next;
-    });
-  }, []);
-
-  // derive counts and validate
+  // validation: exactly 10 most + 10 least; no duplicate ranks within each bucket
   const counts = useMemo(() => {
     const most = [];
     const least = [];
     for (const [id, p] of Object.entries(prefs)) {
-      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) most.push({ id, rank: p.mostRank });
-      if (p.leastRank > 0) least.push({ id, rank: p.leastRank });
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) most.push(p.mostRank);
+      if (p.leastRank > 0) least.push(p.leastRank);
     }
-    // enforce uniqueness within category
-    const dup = (arr) => arr.length !== new Set(arr.map(x => x.rank)).size;
-    const mostDup = dup(most);
-    const leastDup = dup(least);
-    const validMost = most.length === 10 && !mostDup;
-    const validLeast = least.length === 10 && !leastDup;
-    return {
-      mostCount: most.length,
-      leastCount: least.length,
-      validMost, validLeast,
-      isValid: validMost && validLeast,
-      msgMost: validMost ? '' : (mostDup ? 'Duplicate “Most” ranks.' : `Select exactly ${10 - most.length} more “Most”.`),
-      msgLeast: validLeast ? '' : (leastDup ? 'Duplicate “Least” ranks.' : `Select exactly ${10 - least.length} more “Least”.`),
-    };
+    const dedup = (arr) => arr.length === new Set(arr).size;
+    const validMost = most.length === 10 && dedup(most);
+    const validLeast = least.length === 10 && dedup(least);
+    return { validMost, validLeast, isValid: validMost && validLeast, mostCount: most.length, leastCount: least.length };
   }, [prefs]);
 
-  // save
   const handleSubmit = async () => {
-    if (!userId) return;
-    if (!counts.isValid) return;
+    if (!uid || !counts.isValid) return;
 
-    // prepare arrays for clean downstream use
-    // order by calendar order (object key order is not guaranteed)
-    const order = Object.keys(shiftMap);
-    const toOrderIdx = (id) => order.indexOf(id);
-
+    // derive tidy arrays for downstream
+    const orderIdx = (id) => allWeekendIds.indexOf(id);
     const top10 = [];
     const bottom10 = [];
     for (const [id, p] of Object.entries(prefs)) {
       if (p.mostService !== SERVICES.NONE && p.mostRank > 0) {
-        // check service availability warning (not blocking)
-        const open = p.mostService === SERVICES.RNI ? shiftMap[id].isRniAvailable : shiftMap[id].isCoaAvailable;
-        top10.push({ weekend: id, rank: p.mostRank, service: p.mostService, open });
+        top10.push({ weekend: id, rank: p.mostRank, service: p.mostService });
       }
       if (p.leastRank > 0) {
-        bottom10.push({ weekend: id, rank: p.leastRank });
+        bottom10.push({ weekend: id, rank: p.leastRank, service: p.leastService === SERVICES.NONE ? '' : p.leastService });
       }
     }
-    top10.sort((a,b) => a.rank - b.rank || toOrderIdx(a.weekend) - toOrderIdx(b.weekend));
-    bottom10.sort((a,b) => a.rank - b.rank || toOrderIdx(a.weekend) - toOrderIdx(b.weekend));
+    top10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
+    bottom10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
 
-    const ref = getPreferencesDocRef(userId);
-    await setDoc(ref, {
-      // keep the per-shift map (for compatibility/inspection)
+    await setDoc(prefsDocRef(uid), {
       preferences: prefs,
-      // add clean arrays for the optimizer
-      top10, bottom10,
-      lastUpdated: serverTimestamp(),
-      submittedCounts: { most: counts.mostCount, least: counts.leastCount }
+      top10,
+      bottom10,
+      lastUpdated: serverTimestamp()
     }, { merge: true });
-    setStatus('Saved.');
+
+    alert('Preferences saved.');
+  };
+
+  const monthKeys = Object.keys(months); // '01'..'12'
+  const monthTitle = (mk) => {
+    const name = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][parseInt(mk,10)-1];
+    return `${name} ${YEAR}`;
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-height-screen">
-      <h1 className="text-3xl font-extrabold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
-      <p className="text-sm text-gray-600 mb-4">Pick exactly 10 “Most” (with RNI or COA) and exactly 10 “Least” (no service). No duplicate ranks within a category.</p>
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 max-w-7xl mx-auto">
+      <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
+      <p className="text-sm text-gray-600 mb-4">
+        Each month is a tile. For each weekend, select <b>Most</b> (service + rank) and/or <b>Least</b> (rank required, service optional).
+        You must complete exactly 10 Most and 10 Least (no duplicate ranks within a bucket) to submit.
+      </p>
 
-      {/* status/auth */}
-      <div className="mb-6 p-3 bg-indigo-50 border-l-4 border-indigo-400 rounded-lg">
-        <p className="text-sm font-medium text-indigo-800">Status: {status}</p>
-        <p className="text-xs text-indigo-700 mt-1">User ID: <span className="font-mono">{userId || '…'}</span></p>
+      <div className="mb-4 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
+        Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10
       </div>
 
-      {/* counts */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${counts.validMost ? 'bg-emerald-100 text-emerald-800' : 'bg-yellow-100 text-yellow-800'}`}>Most: {counts.mostCount}/10</span>
-        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${counts.validLeast ? 'bg-rose-100 text-rose-800' : 'bg-yellow-100 text-yellow-800'}`}>Least: {counts.leastCount}/10</span>
-        {!counts.validMost && <span className="text-xs text-amber-700">{counts.msgMost}</span>}
-        {!counts.validLeast && <span className="text-xs text-amber-700">{counts.msgLeast}</span>}
+      {/* 2 columns x 6 rows grid of months */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {monthKeys.map((mk, i) => (
+          <MonthCard
+            key={mk}
+            label={monthTitle(mk)}
+            items={months[mk]}
+            prefs={prefs}
+            onMostChange={(id, v) => setMost(id, v)}
+            onLeastChange={(id, v) => setLeast(id, v)}
+          />
+        ))}
       </div>
 
-      {/* paired grid 2-up months */}
-      <div className="space-y-6">
-        {monthOrder.map((_, idx) => {
-          if (idx % 2 !== 0) return null;
-          const m1 = monthOrder[idx];
-          const m2 = monthOrder[idx + 1];
-          return (
-            <div key={m1} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <MonthTable
-                monthTitle={monthTitle(m1)}
-                shifts={rawShiftsByMonth[m1]}
-                prefs={prefs}
-                onMostChange={(id, val) => onMostChange(id, val)}
-                onLeastChange={(id, rank) => onLeastChange(id, rank)}
-              />
-              {m2 && (
-                <MonthTable
-                  monthTitle={monthTitle(m2)}
-                  shifts={rawShiftsByMonth[m2]}
-                  prefs={prefs}
-                  onMostChange={(id, val) => onMostChange(id, val)}
-                  onLeastChange={(id, rank) => onLeastChange(id, rank)}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* submit */}
-      <div className="mt-10 flex items-center gap-8">
+      <div className="mt-8">
         <button
           className={`${counts.isValid ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
           disabled={!counts.isValid}
@@ -498,7 +408,6 @@ export default function App() {
         >
           Submit Final Preferences
         </button>
-        {!counts.isValid && <div className="text-sm text-amber-700">Finish both lists to enable submit.</div>}
       </div>
     </div>
   );
