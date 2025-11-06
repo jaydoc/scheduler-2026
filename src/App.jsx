@@ -4,22 +4,34 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore'; 
 
 // ----------------------------------------------------------------------
-// Firebase Config & Global Constants
+// Firebase Config & Global Constants (Refactored for Error Prevention)
 // ----------------------------------------------------------------------
 
-// Fallback configuration (MUST be defined first to prevent ReferenceError)
-const FALLBACK_FIREBASE_CONFIG = {
-    apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
-    authDomain: "attending-schedule-2026.firebaseapp.com",
-    projectId: "attending-schedule-2026",
-    storageBucket: "attending-schedule-2026.firebasestorage.app",
-    messagingSenderId: "777996986623",
-    appId: "1:777996986623:web:0a8697cccb63149d9744ca",
-    measurementId: "G-TJXCM9P7W2"
-};
+const firebaseConfig = (() => {
+    // Define fallback *locally* inside the function for maximum scope safety
+    const FALLBACK_CONFIG = {
+        apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
+		authDomain: "attending-schedule-2026.firebaseapp.com",
+		projectId: "attending-schedule-2026",
+		storageBucket: "attending-schedule-2026.firebasestorage.app",
+		messagingSenderId: "777996986623",
+		appId: "1:777996986623:web:0a8697cccb63149d9744ca",
+		measurementId: "G-TJXCM9P7W2"
+    };
 
-// Use the environment's config or the fallback
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
+    // Use the environment's config if available and valid
+    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+        try {
+            return JSON.parse(__firebase_config);
+        } catch (e) {
+            console.error("Error parsing __firebase_config, using fallback.", e);
+            return FALLBACK_CONFIG;
+        }
+    }
+    
+    // Return the fallback if the environment config is missing
+    return FALLBACK_CONFIG;
+})();
 
 // Other essential constants
 const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-paired"; 
