@@ -4,8 +4,10 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore'; 
 
 // ----------------------------------------------------------------------
-// Firebase Config & Global Constants
+// Firebase Config & Global Constants (Order adjusted to fix ReferenceError)
 // ----------------------------------------------------------------------
+
+// 1. Define the fallback configuration first.
 const FALLBACK_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
     authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -16,7 +18,7 @@ const FALLBACK_FIREBASE_CONFIG = {
     measurementId: "G-TJXCM9P7W2"
 };
 
-// --- GLOBAL VARIABLES ---
+// 2. Use the fallback configuration.
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
 const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-refined"; 
 const YEAR = 2026;
@@ -604,7 +606,7 @@ export default function App() {
                             monthTitle={getMonthTitle(monthKey)}
                             shifts={rawShiftsByMonth[monthKey]}
                             preferences={preferences}
-                            onPreferenceUpdate={handlePreferenceChange} {/* <-- FIX: Changed from handlePreferenceUpdate to handlePreferenceChange */}
+                            onPreferenceUpdate={handlePreferenceChange}
                         />
                     ))}
                 </div>
