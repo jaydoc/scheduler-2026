@@ -122,13 +122,16 @@ export default function App() {
         const createInitialShifts = async () => {
             const initialShifts = [];
             let day = 1;
-            for (let m = 7; m <= 12; m++) {
-                const service = SERVICES[day % SERVICES.length]; // Simple rotating service assignment
-                for (let i = 1; i <= 3; i++) {
+            
+            // CORRECTED LOOP: Generate 4 shifts over 5 months (July=7 to Nov=11) = 20 shifts
+            for (let m = 7; m <= 11; m++) { 
+                for (let i = 1; i <= 4; i++) { 
+                    const service = SERVICES[day % SERVICES.length]; 
                     const date = `2026-${m.toString().padStart(2, '0')}-${(day++).toString().padStart(2, '0')}`;
                     initialShifts.push(`${date} (${service})`);
                 }
             }
+            // Total shifts created: 20.
 
             const initialData = {
                 open: initialShifts,
@@ -138,7 +141,7 @@ export default function App() {
             };
 
             await setDoc(ref, initialData, { merge: true });
-            console.log("Initial shifts created in Firestore.");
+            console.log("Initial 20 shifts created in Firestore.");
         };
 
 
@@ -152,9 +155,15 @@ export default function App() {
                     most: data.most || [],
                     least: data.least || [],
                 });
-                setLoadingMessage("Database already seeded. Listening for real-time updates.");
+                
+                // If data exists but has the wrong number of shifts, we flag it.
+                if (data.open.length + data.most.length + data.least.length !== 20) {
+                    setLoadingMessage("Database needs shift count update. Total shifts found: " + (data.open.length + data.most.length + data.least.length) + ". You must delete your 'shift-preferences' document in Firestore to re-seed.");
+                } else {
+                    setLoadingMessage("Database already seeded. Listening for real-time updates.");
+                }
             } else {
-                // If no document exists, create initial shifts (only happens once)
+                // If no document exists, create initial 20 shifts
                 createInitialShifts().catch(e => {
                     console.error("Error creating initial shifts:", e);
                     setLoadingMessage(`Error initializing shifts: ${e.message}`);
@@ -168,7 +177,7 @@ export default function App() {
         return () => unsubscribe();
     }, [isAuthReady, userId]);
 
-    // --- 3. DRAG AND DROP HANDLERS (The Fix) ---
+    // --- 3. DRAG AND DROP HANDLERS ---
 
     // Generic function to move a shift from source list to destination list
     const moveShift = useCallback((shift, sourceList, destList) => {
@@ -236,7 +245,7 @@ export default function App() {
         }
     }, [moveShift]);
 
-    // --- 4. DATA SUBMISSION (The Fix) ---
+    // --- 4. DATA SUBMISSION ---
     const handleSubmit = async () => {
         if (!userId) {
             setSubmitStatus('Error: User not authenticated.');
@@ -263,7 +272,7 @@ export default function App() {
                 userName: currentUser ? currentUser.name : 'Unknown User',
             });
 
-            setSubmitStatus('Success! Preferences saved in real-time. Try refreshing to verify persistence!');
+            setSubmitStatus('Success! Preferences saved in real-time. You can now refresh and see them!');
 
         } catch (e) {
             console.error("Error saving preferences:", e);
