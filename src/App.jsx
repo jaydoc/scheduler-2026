@@ -390,18 +390,25 @@ export default function App() {
       </div>
 
       {/* 2 columns × 6 rows, strictly January → December */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {MONTH_KEYS.map(mk => (
-          <MonthCard
-            key={mk}
-            label={monthTitleFull(mk)}
-            items={months[mk]}
-            prefs={prefs}
-            onMostChange={(id, v) => setMost(id, v)}
-            onLeastChange={(id, v) => setLeast(id, v)}
-          />
-        ))}
-      </div>
+     {/* FORCE 2×6 GRID ALWAYS (no Tailwind required) */}
+	<div style={{
+		display: 'grid',
+		gridTemplateColumns: 'repeat(2, 1fr)',
+		gap: '32px',
+		alignItems: 'start'
+	}}>
+		{MONTH_KEYS.map(mk => (
+			<MonthCard
+			key={mk}
+			label={monthTitleFull(mk)}
+			items={months[mk]}
+			prefs={prefs}
+			onMostChange={(id, v) => setMost(id, v)}
+			onLeastChange={(id, v) => setLeast(id, v)}
+		/>
+	))}
+</div>
+
 
       <div className="mt-8">
         <button
