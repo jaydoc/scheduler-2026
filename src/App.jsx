@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore'; 
 
 // ----------------------------------------------------------------------
-// FIX FOR REFERENCE ERROR: Declaring FALLBACK_FIREBASE_CONFIG first
+// Firebase Config & Global Constants
 // ----------------------------------------------------------------------
 const FALLBACK_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
@@ -21,6 +21,8 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
 const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6-final"; 
 const SERVICES = { 'RNI': 'RNI', 'COA': 'COA' };
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const YEAR = 2026;
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
@@ -34,95 +36,160 @@ const getPreferencesDocRef = (userId) => {
     return doc(userPrefsCollection, 'calendar-preferences');
 };
 
-// --- Data Generation: Based on the 2026 Weekend Schedule Document ---
+// ----------------------------------------------------------------------
+// DATA PROCESSING
+// ----------------------------------------------------------------------
 
-const generateMasterShifts = () => {
+const rawShiftsData = [
     // Data extracted from the 2026 Attending Weekend Schedule document (36 shifts total, Jan-Sept).
-    const rawShifts = [
-        // JANUARY 2026 (4 shifts)
-        { date: '2026-01-10', service: SERVICES.RNI, assigned: 'RNI/BPD/COA QB-H' }, 
-        { date: '2026-01-17', service: SERVICES.COA, assigned: 'MLK Day' },
-        { date: '2026-01-24', service: SERVICES.RNI, assigned: 'Kane/Winter/Hightower/Coghill' },
-        { date: '2026-01-31', service: SERVICES.COA, assigned: 'Kane/Winter/Hightower/Coghill' },
+    // Note: The structure implies all these dates are shift dates, even if covered by multiple people or holidays.
+    // Assignments are interpreted as: RNI Attending / COA Attending / Other Details
+    // JANUARY 2026 (4 shifts)
+    { date: '2026-01-10', service: SERVICES.RNI, assigned: 'RNI/BPD/COA QB-H' }, // Saturday
+    { date: '2026-01-17', service: SERVICES.COA, assigned: 'MLK Day' }, // Saturday
+    { date: '2026-01-24', service: SERVICES.RNI, assigned: 'Kane/Winter/Hightower/Coghill' }, // Saturday
+    { date: '2026-01-31', service: SERVICES.COA, assigned: 'Kane/Winter/Hightower/Coghill' }, // Saturday
 
-        // FEBRUARY 2026 (4 shifts)
-        { date: '2026-02-07', service: SERVICES.COA, assigned: 'Boone' }, 
-        { date: '2026-02-14', service: SERVICES.RNI, assigned: 'Boone' }, 
-        { date: '2026-02-21', service: SERVICES.COA, assigned: 'Willis' }, 
-        { date: '2026-02-28', service: SERVICES.RNI, assigned: 'Willis' }, 
+    // FEBRUARY 2026 (4 shifts)
+    { date: '2026-02-07', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
+    { date: '2026-02-14', service: SERVICES.RNI, assigned: 'Boone' }, // Saturday
+    { date: '2026-02-21', service: SERVICES.COA, assigned: 'Willis' }, // Saturday
+    { date: '2026-02-28', service: SERVICES.RNI, assigned: 'Willis' }, // Saturday
 
-        // MARCH 2026 (4 shifts)
-        { date: '2026-03-07', service: SERVICES.RNI, assigned: 'Ambal/Arora' },
-        { date: '2026-03-14', service: SERVICES.COA, assigned: 'Winter' }, 
-        { date: '2026-03-21', service: SERVICES.RNI, assigned: 'Ambal/Arora' },
-        { date: '2026-03-28', service: SERVICES.COA, assigned: 'Arora' }, 
+    // MARCH 2026 (4 shifts)
+    { date: '2026-03-07', service: SERVICES.RNI, assigned: 'Ambal/Arora' }, // Saturday
+    { date: '2026-03-14', service: SERVICES.COA, assigned: 'Winter' }, // Saturday
+    { date: '2026-03-21', service: SERVICES.RNI, assigned: 'Ambal/Arora' }, // Saturday
+    { date: '2026-03-28', service: SERVICES.COA, assigned: 'Arora' }, // Saturday
 
-        // APRIL 2026 (4 shifts)
-        { date: '2026-04-04', service: SERVICES.COA, assigned: 'Sims' }, 
-        { date: '2026-04-11', service: SERVICES.RNI, assigned: 'Sims/Kane/Black/Yazdi' }, 
-        { date: '2026-04-18', service: SERVICES.COA, assigned: 'Sims' }, 
-        { date: '2026-04-25', service: SERVICES.RNI, assigned: 'PAS' }, 
-        
-        // MAY 2026 (4 shifts)
-        { date: '2026-05-02', service: SERVICES.RNI, assigned: 'Arora/Lal/Kabani/Summerlin' },
-        { date: '2026-05-09', service: SERVICES.COA, assigned: 'Arora' }, 
-        { date: '2026-05-16', service: SERVICES.RNI, assigned: 'Arora' }, 
-        { date: '2026-05-23', service: SERVICES.COA, assigned: 'Memorial Day' },
-
-        // JUNE 2026 (4 shifts)
-        { date: '2026-06-06', service: SERVICES.RNI, assigned: 'Schuyler/Winter' },
-        { date: '2026-06-13', service: SERVICES.COA, assigned: 'Boone' }, 
-        { date: '2026-06-19', service: SERVICES.RNI, assigned: 'Juneteenth Day' },
-        { date: '2026-06-27', service: SERVICES.COA, assigned: 'Boone' }, 
-        
-        // JULY 2026 (4 shifts)
-        { date: '2026-07-04', service: SERVICES.RNI, assigned: '4th of July' },
-        { date: '2026-07-11', service: SERVICES.COA, assigned: 'Willis' }, 
-        { date: '2026-07-18', service: SERVICES.RNI, assigned: 'Jain/Shukla/Willis/Carlo' }, 
-        { date: '2026-07-25', service: SERVICES.COA, assigned: 'Shukla/Willis' },
-
-        // AUGUST 2026 (4 shifts)
-        { date: '2026-08-01', service: SERVICES.COA, assigned: 'Boone' }, 
-        { date: '2026-08-08', service: SERVICES.RNI, assigned: 'Sims/Carlo' },
-        { date: '2026-08-15', service: SERVICES.COA, assigned: 'Boone' }, 
-        { date: '2026-08-22', service: SERVICES.RNI, assigned: 'Sims' }, 
-
-        // SEPTEMBER 2026 (4 shifts)
-        { date: '2026-09-05', service: SERVICES.RNI, assigned: 'Labor Day' },
-        { date: '2026-09-12', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' }, 
-        { date: '2026-09-19', service: SERVICES.RNI, assigned: 'Mackay/Philips/Black/Stoops' },
-        { date: '2026-09-26', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' },
-    ];
+    // APRIL 2026 (4 shifts)
+    { date: '2026-04-04', service: SERVICES.COA, assigned: 'Sims' }, // Saturday
+    { date: '2026-04-11', service: SERVICES.RNI, assigned: 'Sims/Kane/Black/Yazdi' }, // Saturday
+    { date: '2026-04-18', service: SERVICES.COA, assigned: 'Sims' }, // Saturday
+    { date: '2026-04-25', service: SERVICES.RNI, assigned: 'PAS' }, // Saturday
     
-    // Process and group the shifts by month
-    const shiftsByMonth = rawShifts.reduce((acc, s) => {
+    // MAY 2026 (4 shifts)
+    { date: '2026-05-02', service: SERVICES.RNI, assigned: 'Arora/Lal/Kabani/Summerlin' }, // Saturday
+    { date: '2026-05-09', service: SERVICES.COA, assigned: 'Arora' }, // Saturday
+    { date: '2026-05-16', service: SERVICES.RNI, assigned: 'Arora' }, // Saturday
+    { date: '2026-05-23', service: SERVICES.COA, assigned: 'Memorial Day' }, // Saturday
+
+    // JUNE 2026 (4 shifts)
+    { date: '2026-06-06', service: SERVICES.RNI, assigned: 'Schuyler/Winter' }, // Saturday
+    { date: '2026-06-13', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
+    { date: '2026-06-19', service: SERVICES.RNI, assigned: 'Juneteenth Day' }, // Friday (Keeping original shift data)
+    { date: '2026-06-27', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
+    
+    // JULY 2026 (4 shifts)
+    { date: '2026-07-04', service: SERVICES.RNI, assigned: '4th of July' }, // Saturday
+    { date: '2026-07-11', service: SERVICES.COA, assigned: 'Willis' }, // Saturday
+    { date: '2026-07-18', service: SERVICES.RNI, assigned: 'Jain/Shukla/Willis/Carlo' }, // Saturday
+    { date: '2026-07-25', service: SERVICES.COA, assigned: 'Shukla/Willis' }, // Saturday
+
+    // AUGUST 2026 (4 shifts)
+    { date: '2026-08-01', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
+    { date: '2026-08-08', service: SERVICES.RNI, assigned: 'Sims/Carlo' }, // Saturday
+    { date: '2026-08-15', service: SERVICES.COA, assigned: 'Boone' }, // Saturday
+    { date: '2026-08-22', service: SERVICES.RNI, assigned: 'Sims' }, // Saturday
+
+    // SEPTEMBER 2026 (4 shifts)
+    { date: '2026-09-05', service: SERVICES.RNI, assigned: 'Labor Day' }, // Saturday
+    { date: '2026-09-12', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
+    { date: '2026-09-19', service: SERVICES.RNI, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
+    { date: '2026-09-26', service: SERVICES.COA, assigned: 'Mackay/Philips/Black/Stoops' }, // Saturday
+    
+    // --- Add Oct-Dec Placeholder Shifts (Assuming 4 shifts per month) ---
+    // Note: If you provide the actual Oct-Dec 2026 data, replace these placeholders.
+    // Example Placeholder Dates (Saturdays in October 2026)
+    { date: '2026-10-03', service: SERVICES.RNI, assigned: 'TBD' }, 
+    { date: '2026-10-10', service: SERVICES.COA, assigned: 'TBD' },
+    { date: '2026-10-17', service: SERVICES.RNI, assigned: 'TBD' },
+    { date: '2026-10-24', service: SERVICES.COA, assigned: 'Halloween Week' },
+    
+    // Example Placeholder Dates (Saturdays in November 2026)
+    { date: '2026-11-07', service: SERVICES.RNI, assigned: 'TBD' }, 
+    { date: '2026-11-14', service: SERVICES.COA, assigned: 'TBD' },
+    { date: '2026-11-21', service: SERVICES.RNI, assigned: 'Thanksgiving Week' },
+    { date: '2026-11-28', service: SERVICES.COA, assigned: 'TBD' },
+
+    // Example Placeholder Dates (Saturdays in December 2026)
+    { date: '2026-12-05', service: SERVICES.RNI, assigned: 'TBD' }, 
+    { date: '2026-12-12', service: SERVICES.COA, assigned: 'TBD' },
+    { date: '2026-12-19', service: SERVICES.RNI, assigned: 'TBD' },
+    { date: '2026-12-26', service: SERVICES.COA, assigned: 'Christmas Week' },
+];
+
+const getWeekendShiftsData = () => {
+    return rawShiftsData.reduce((acc, s) => {
+        const dateKey = s.date;
         const dateParts = s.date.split('-');
-        const monthIndex = parseInt(dateParts[1], 10) - 1;
-        const monthName = MONTH_NAMES[monthIndex];
-
-        // A shift is 'Taken' (FILLED) if the 'assigned' detail is a single attending's name
-        const isTaken = s.assigned && !s.assigned.includes('/') && !s.assigned.includes('Day') && s.assigned !== 'PAS' && s.assigned !== 'RNI/BPD/COA QB-H';
+        const monthName = MONTH_NAMES[parseInt(dateParts[1], 10) - 1];
         
-        const shift = {
-            id: s.date, 
-            month: monthName,
-            day: dateParts[2],
-            service: s.service,
-            isTaken: isTaken, 
-            detail: s.assigned
-        };
+        // Parsing Assignment Details based on user instruction: RNI / COA / Other Details
+        const assignments = s.assigned.split('/');
+        const rniAttending = assignments[0]?.trim() || null;
+        const coaAttending = assignments[1]?.trim() || null;
+        
+        // A shift is 'FILLED' if a single attending is named for both RNI and COA (or a single name if the service matches)
+        const isTaken = rniAttending !== 'TBD' && !s.assigned.includes('Day') && !s.assigned.includes('TBD') && s.assigned.split('/').length <= 2;
 
-        if (!acc[monthName]) {
-            acc[monthName] = [];
-        }
-        acc[monthName].push(shift);
+        acc[dateKey] = {
+            id: dateKey, 
+            month: monthName,
+            day: parseInt(dateParts[2], 10),
+            service: s.service, // The core service type for this date
+            rniAttending: rniAttending,
+            coaAttending: coaAttending,
+            detail: s.assigned,
+            isTaken: isTaken,
+        };
         return acc;
     }, {});
-    
-    return shiftsByMonth;
 };
 
-// --- Shared Components ---
+// Utility to generate the full calendar structure for a month
+const generateFullCalendar = (year, monthIndex, shiftMap) => {
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const firstDay = new Date(year, monthIndex, 1).getDay(); // 0 = Sunday
+
+    const calendar = [];
+    
+    // Add spacer cells for the start of the month
+    for (let i = 0; i < firstDay; i++) {
+        calendar.push({ type: 'spacer', id: `spacer-${monthIndex}-${i}` });
+    }
+
+    // Add days
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dateString = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const shift = shiftMap[dateString];
+        const dayOfWeek = new Date(year, monthIndex, day).getDay(); // 0=Sunday, 6=Saturday
+        
+        calendar.push({
+            type: 'day',
+            day: day,
+            isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
+            dateString: dateString,
+            shift: shift,
+        });
+    }
+
+    // Add trailing spacer cells if necessary (optional for grid consistency)
+    const totalCells = calendar.length;
+    const remainingCells = totalCells % 7;
+    if (remainingCells !== 0) {
+        for (let i = 0; i < (7 - remainingCells); i++) {
+            calendar.push({ type: 'spacer', id: `end-spacer-${monthIndex}-${i}` });
+        }
+    }
+
+    return calendar;
+};
+
+
+// ----------------------------------------------------------------------
+// SHARED COMPONENTS
+// ----------------------------------------------------------------------
 
 const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUpdate, isTaken }) => {
     if (isTaken) {
@@ -162,12 +229,12 @@ const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUp
             value={currentValue}
             onChange={handleChange}
             className={`
-                mt-1 w-full text-xs p-1 rounded-lg border-2 shadow-sm
+                mt-1 w-full text-[10px] p-0.5 rounded-lg border shadow-sm
                 transition-all duration-150 ease-in-out cursor-pointer
                 ${currentType === 'most' ? 'bg-emerald-100 border-emerald-500 text-emerald-800 font-semibold' : ''}
                 ${currentType === 'least' ? 'bg-rose-100 border-rose-500 text-rose-800 font-semibold' : ''}
                 ${currentType === 'none' ? 'bg-white border-gray-300 text-gray-700' : ''}
-                focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+                focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500
             `}
         >
             {options.map(opt => (
@@ -180,20 +247,120 @@ const PreferenceDropdown = React.memo(({ shiftId, currentType, currentRank, onUp
 });
 
 
-// --- MAIN APP COMPONENT ---
+const CalendarMonth = React.memo(({ monthIndex, preferences, onPreferenceUpdate, shiftMap, allShifts }) => {
+    const monthName = MONTH_NAMES[monthIndex];
+    const calendarDays = useMemo(() => generateFullCalendar(YEAR, monthIndex, shiftMap), [monthIndex, shiftMap]);
+
+    return (
+        <div className="mb-10 shadow-xl rounded-xl overflow-hidden bg-white border border-gray-200">
+            <h3 className="text-2xl font-extrabold text-gray-700 p-4 bg-indigo-50 border-b-2 border-indigo-200">
+                {monthName} {YEAR}
+            </h3>
+            
+            <div className="grid grid-cols-7 text-center font-bold text-sm text-gray-600 bg-gray-100 border-b">
+                {DAY_NAMES.map(day => (
+                    <div key={day} className="p-2 border-r last:border-r-0">
+                        {day}
+                    </div>
+                ))}
+            </div>
+
+            <div className="grid grid-cols-7 auto-rows-fr">
+                {calendarDays.map((cell) => {
+                    if (cell.type === 'spacer') {
+                        return <div key={cell.id} className="min-h-[120px] bg-gray-50 border-r border-b"></div>;
+                    }
+
+                    const shift = cell.shift;
+                    const isShiftDay = !!shift;
+                    
+                    const currentPref = preferences[cell.dateString] || { type: 'none', rank: 0 };
+                    
+                    // Base styling
+                    let cellClasses = "p-1 min-h-[120px] border-r border-b relative group transition-all duration-150";
+
+                    if (cell.isWeekend) {
+                        cellClasses += " bg-indigo-50 hover:bg-indigo-100";
+                    } else {
+                        cellClasses += " bg-white hover:bg-gray-50";
+                    }
+                    
+                    if (isShiftDay) {
+                         // Apply preference coloring only to shift days
+                        if (currentPref.type === 'most') {
+                            cellClasses += " !bg-emerald-100 ring-2 ring-emerald-500 z-10";
+                        } else if (currentPref.type === 'least') {
+                            cellClasses += " !bg-rose-100 ring-2 ring-rose-500 z-10";
+                        } else if (shift.isTaken) {
+                            cellClasses += " !bg-red-50 opacity-75"; // Highlight filled shifts lightly
+                        }
+                    }
+
+                    return (
+                        <div key={cell.dateString} className={cellClasses}>
+                            <div className="absolute top-1 left-2 text-lg font-extrabold text-gray-800">
+                                {cell.day}
+                            </div>
+                            
+                            {isShiftDay && (
+                                <div className="mt-6 flex flex-col h-full">
+                                    <div className="flex-grow space-y-0.5 px-0.5">
+                                        {/* RNI Assignment (First Name) */}
+                                        <p className="text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-md px-1 leading-tight">
+                                            RNI: {shift.rniAttending || 'TBD'}
+                                        </p>
+                                        
+                                        {/* COA Assignment (Second Name) */}
+                                        {shift.coaAttending && (
+                                            <p className="text-[11px] font-semibold text-purple-700 bg-purple-100 rounded-md px-1 leading-tight">
+                                                COA: {shift.coaAttending}
+                                            </p>
+                                        )}
+                                        
+                                        {/* If a complex detail or holiday */}
+                                        {shift.detail && shift.detail.includes('Day') && (
+                                            <p className="text-[10px] italic text-orange-700 font-semibold">
+                                                {shift.detail}
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Preference Dropdown */}
+                                    <div className="mt-1">
+                                        <PreferenceDropdown
+                                            shiftId={shift.id}
+                                            currentType={currentPref.type}
+                                            currentRank={currentPref.rank}
+                                            onUpdate={onPreferenceUpdate}
+                                            isTaken={shift.isTaken}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+});
+
+
+// ----------------------------------------------------------------------
+// MAIN APP COMPONENT
+// ----------------------------------------------------------------------
 export default function App() {
     const [userId, setUserId] = useState(null);
     const [isAuthReady, setIsAuthReady] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState("Authenticating...");
     
-    const [shiftsByMonth] = useState(generateMasterShifts); 
+    const [shiftMap] = useState(getWeekendShiftsData); 
     const [preferences, setPreferences] = useState({});
     
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitStatus, setSubmitStatus] = useState('');
     
-    const allShifts = useMemo(() => Object.values(shiftsByMonth).flat(), [shiftsByMonth]);
-    // Count shifts not marked as 'isTaken' (e.g., those with multiple names or holiday placeholders)
+    const allShifts = useMemo(() => Object.values(shiftMap), [shiftMap]);
     const availableShiftsCount = useMemo(() => allShifts.filter(s => !s.isTaken).length, [allShifts]);
 
     // --- 1. AUTHENTICATION & Initialization ---
@@ -267,7 +434,7 @@ export default function App() {
         setPreferences(prevPreferences => {
             const newPreferences = { ...prevPreferences };
             
-            // Check for duplicate ranks
+            // Validation check for duplicate ranks
             if (type !== 'none' && rank > 0) {
                 const isRankUsed = Object.entries(newPreferences).some(([id, pref]) => 
                     id !== shiftId && pref.type === type && pref.rank === rank
@@ -365,7 +532,7 @@ export default function App() {
 
     // --- RENDER ---
     return (
-        <div className="p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-h-screen">
+        <div className="p-4 sm:p-6 max-w-7xl mx-auto font-sans bg-gray-50 min-h-screen">
             <h1 className="text-3xl font-bold text-gray-800 mb-2">2026 Attending Weekend Preference System</h1>
             <p className="text-sm text-gray-600 mb-4">
                 Full-Year Calendar View | **Available Shifts to Rank**: <span className="font-semibold text-blue-700">{availableShiftsCount}</span>
@@ -378,7 +545,7 @@ export default function App() {
             {/* --- Count & Instructions Bar --- */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 p-4 bg-white shadow-lg rounded-xl border border-gray-200">
                 <p className="text-sm text-gray-600 sm:mr-4 mb-4 sm:mb-0">
-                    **Instructions:** Rank your **Top 10 Most Preferred** and **Top 10 Least Preferred** shifts using the dropdowns on the available dates. All ranks (1-10) must be unique within their respective category. You can update your selections at any time.
+                    **Instructions:** Rank your **Top 10 Most Preferred** and **Top 10 Least Preferred** shifts using the dropdowns on the available dates. All ranks (1-10) must be unique within their respective category.
                 </p>
                 <div className="flex-shrink-0 flex space-x-2">
                     <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold 
@@ -393,69 +560,18 @@ export default function App() {
             </div>
             
             {/* --- CALENDAR GRID VIEW by MONTH --- */}
-            {MONTH_NAMES.map((monthName) => {
-                const shifts = shiftsByMonth[monthName];
-                if (!shifts || shifts.length === 0) return null;
-
-                return (
-                    <div key={monthName} className="mb-8">
-                        <h3 className="text-2xl font-bold text-gray-700 mb-4 border-b-2 border-indigo-200 pb-2">{monthName} 2026}</h3>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                            {shifts.map((shift) => {
-                                const currentPref = preferences[shift.id] || { type: 'none', rank: 0 };
-                                
-                                let bgColor = 'bg-white';
-                                let borderColor = 'border-gray-300';
-
-                                if (shift.isTaken) {
-                                    // Already assigned to a single attending
-                                    bgColor = 'bg-gray-100';
-                                    borderColor = 'border-red-400';
-                                } else if (currentPref.type === 'most') {
-                                    // User selected as most preferred
-                                    bgColor = 'bg-emerald-50';
-                                    borderColor = 'border-emerald-500';
-                                } else if (currentPref.type === 'least') {
-                                    // User selected as least preferred
-                                    bgColor = 'bg-rose-50';
-                                    borderColor = 'border-rose-500';
-                                }
-
-                                return (
-                                    <div 
-                                        key={shift.id}
-                                        className={`p-3 rounded-xl shadow-md border-2 ${bgColor} ${borderColor} transition-all duration-300 min-h-[160px] flex flex-col justify-between`}
-                                    >
-                                        <div>
-                                            <p className="text-xs font-semibold text-gray-500 uppercase">{shift.month}</p>
-                                            <p className="text-3xl font-extrabold text-gray-800 leading-none">{shift.day}</p>
-                                            
-                                            <div className={`mt-1 text-sm font-bold rounded-md px-2 py-1 inline-block 
-                                                ${shift.service === SERVICES.RNI ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}
-                                            >
-                                                {shift.service}
-                                            </div>
-                                            <p className="text-xs text-gray-500 mt-1 h-8 overflow-hidden" title={shift.detail}>
-                                                {shift.detail}
-                                            </p>
-                                        </div>
-                                        
-                                        <div className="mt-2 h-14 flex-shrink-0">
-                                            <PreferenceDropdown
-                                                shiftId={shift.id}
-                                                currentType={currentPref.type}
-                                                currentRank={currentPref.rank}
-                                                onUpdate={handlePreferenceChange}
-                                                isTaken={shift.isTaken}
-                                            />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                );
-            })}
+            <div className="space-y-10">
+                {Array.from({ length: 12 }).map((_, monthIndex) => (
+                    <CalendarMonth 
+                        key={monthIndex}
+                        monthIndex={monthIndex}
+                        preferences={preferences}
+                        onPreferenceUpdate={handlePreferenceChange}
+                        shiftMap={shiftMap}
+                        allShifts={allShifts}
+                    />
+                ))}
+            </div>
 
             {/* --- Submit Button & Status --- */}
             <div className="mt-12 flex flex-col items-center">
@@ -485,7 +601,7 @@ export default function App() {
             </div>
 
             <div className="mt-12 pt-6 border-t border-gray-200 text-xs text-gray-500 text-center">
-                <p>Your unique user ID is: <span className="font-mono text-gray-700">{userId || 'Authenticating...'}</span>. This ID ensures your rankings are saved securely to the database.</p>
+                <p>Your unique user ID is: <span className="font-mono text-gray-700">{userId || 'Authenticating...'}</span>.</p>
             </div>
         </div>
     );
