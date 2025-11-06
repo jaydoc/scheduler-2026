@@ -6,7 +6,7 @@ import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/fire
 // ----------------------------------------------------------------------
 // FIX FOR REFERENCE ERROR: Declaring FALLBACK_FIREBASE_CONFIG first
 // ----------------------------------------------------------------------
-const YOUR_FIREBASE_CONFIG = {
+const FALLBACK_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
     authDomain: "attending-schedule-2026.firebaseapp.com",
     projectId: "attending-schedule-2026",
