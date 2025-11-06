@@ -20,23 +20,12 @@ const YOUR_FIREBASE_CONFIG = {
     measurementId: "G-TJXCM9P7W2"
 };
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, collection, onSnapshot } from 'firebase/firestore';
 
 // ----------------------------------------------------------------------
 // NOTE: Firebase Config and Auth Token are provided by the environment.
 // The fallback config below is for development testing only.
 // ----------------------------------------------------------------------
-const FALLBACK_FIREBASE_CONFIG = {
-    apiKey: "YOUR_API_KEY_HERE", 
-    authDomain: "your-project-id.firebaseapp.com",
-    projectId: "your-project-id",
-    storageBucket: "your-project-id.appspot.com",
-    messagingSenderId: "...",
-    appId: "1:..." 
-};
+
 
 // --- GLOBAL VARIABLES ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : FALLBACK_FIREBASE_CONFIG;
