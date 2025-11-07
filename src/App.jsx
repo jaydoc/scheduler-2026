@@ -7,26 +7,49 @@ import {
 } from 'firebase/firestore';
 
 /* ----------------------------------------------------------------------
-   Firebase config (honors __firebase_config if present)
+   Build/version tag (helps confirm you’re on the latest deploy)
    ---------------------------------------------------------------------- */
+const __APP_VERSION__ = "v12.1 - fix FALLBACK_FIREBASE_CONFIG + least service required";
+console.log("Scheduler build:", __APP_VERSION__);
+
+/* ----------------------------------------------------------------------
+   Firebase config
+   Exposes a compatible global (window.FALLBACK_FIREBASE_CONFIG) so older
+   code or other chunks that expect it won’t crash.
+   ---------------------------------------------------------------------- */
+const LOCAL_FALLBACK = {
+  apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
+  authDomain: "attending-schedule-2026.firebaseapp.com",
+  projectId: "attending-schedule-2026",
+  storageBucket: "attending-schedule-2026.firebasestorage.app",
+  messagingSenderId: "777996986623",
+  appId: "1:777996986623:web:0a8697cccb63149d9744ca",
+  measurementId: "G-TJXCM9P7W2"
+};
+
+// Ensure a global fallback exists for any legacy references
+if (typeof window !== 'undefined') {
+  window.FALLBACK_FIREBASE_CONFIG = window.FALLBACK_FIREBASE_CONFIG || LOCAL_FALLBACK;
+}
+
+// Prefer an injected __firebase_config (stringified JSON) if present
 const firebaseConfig = (() => {
-  const FALLBACK = {
-    apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
-    authDomain: "attending-schedule-2026.firebaseapp.com",
-    projectId: "attending-schedule-2026",
-    storageBucket: "attending-schedule-2026.firebasestorage.app",
-    messagingSenderId: "777996986623",
-    appId: "1:777996986623:web:0a8697cccb63149d9744ca",
-    measurementId: "G-TJXCM9P7W2"
-  };
-  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-    try { return JSON.parse(__firebase_config); } catch { return FALLBACK; }
+  try {
+    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+      // __firebase_config is expected to be a JSON string
+      return JSON.parse(__firebase_config);
+    }
+  } catch (e) {
+    console.warn("Invalid __firebase_config, falling back:", e);
   }
-  return FALLBACK;
+  if (typeof window !== 'undefined' && window.FALLBACK_FIREBASE_CONFIG) {
+    return window.FALLBACK_FIREBASE_CONFIG;
+  }
+  return LOCAL_FALLBACK;
 })();
 
-/* bump to force redeploy/cache-bust */
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12";
+/* bump to force redeploy/cache-bust when needed */
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12.1";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -35,7 +58,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 /* ----------------------------------------------------------------------
-   Attending roster (YOUR LIST)
+   Attending roster
    ---------------------------------------------------------------------- */
 const ATTENDINGS = [
   { name: "Ambal",   email: "nambalav@uab.edu" },
@@ -58,7 +81,7 @@ const ATTENDINGS = [
   { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* Per-attending targets (keys match ATTENDINGS.name exactly) */
+/* Per-attending targets */
 const ATTENDING_LIMITS = {
   "Ambal":     { requested: 6,  claimed: 4, left: 2 },
   "Schuyler":  { requested: 3,  claimed: 2, left: 1 },
@@ -166,7 +189,7 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Availability map: weekendId -> ['RNI'] | ['COA'] | ['RNI','COA'] | [] */
+/* Availability map */
 const availabilityByWeekend = (() => {
   const m = {};
   for (const arr of Object.values(months)) {
@@ -449,7 +472,7 @@ function docHtml(name, email, top10, bottom10) {
 }
 
 /* ----------------------------------------------------------------------
-   App
+   App (auth, state, admin)
    ---------------------------------------------------------------------- */
 export default function App() {
   const [uid, setUid] = useState(null);
@@ -559,7 +582,7 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastChoice: v.leastChoice } }));
   }, []);
 
-  // counts (choices made) — service required for BOTH
+  // counts
   const counts = useMemo(() => {
     let mostCount = 0, leastCount = 0;
     for (const p of Object.values(prefs)) {
@@ -576,7 +599,7 @@ export default function App() {
     await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
   };
 
-  // assemble arrays from current prefs (service required for least)
+  // assemble arrays
   const assembleTopBottom = useCallback(() => {
     const orderIdx = id => allWeekendIds.indexOf(id);
     const top10 = [];
@@ -590,13 +613,12 @@ export default function App() {
     return { top10, bottom10 };
   }, [prefs]);
 
-  // submit and lock — validate least must have service if choice picked
+  // submit and lock (least must have service)
   const handleSubmit = async () => {
     if (!uid || !profile.name) {
       alert('Select your name first.');
       return;
     }
-    // Validate Least requirements
     const badLeast = Object.entries(prefs).some(
       ([_, p]) => p.leastChoice > 0 && p.leastService === SERVICES.NONE
     );
@@ -800,7 +822,7 @@ export default function App() {
       />
 
       {/* Submit */}
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 8px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
         <button
           className={`${profile.name && !submitted ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
           disabled={!profile.name || submitted}
@@ -811,6 +833,11 @@ export default function App() {
         <span className="text-sm text-gray-600">
           {submitted ? 'Locked. Downloads above reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}
         </span>
+      </div>
+
+      {/* Build tag */}
+      <div style={{maxWidth:1120, margin:"0 auto", padding:"0 12px 24px", textAlign:"right", color:"#64748b", fontSize:12}}>
+        Build: {__APP_VERSION__}
       </div>
     </div>
   );
