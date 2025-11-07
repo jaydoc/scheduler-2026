@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v13.0 - polish + summary + admin exports + draft scheduler";
+const __APP_VERSION__ = "v14.0 - polish + summary + admin exports + draft scheduler + firebase badge";
 console.log("Scheduler build:", __APP_VERSION__);
 
 /* Firebase config: prefer injected, else global fallback, else local */
@@ -536,6 +536,7 @@ export default function App() {
   const [prefs, setPrefs] = useState(initEmptyPrefs());
   const [profile, setProfile] = useState({ name: '', email: '' });
   const [submitted, setSubmitted] = useState(false);
+  const [firebaseStatus, setFirebaseStatus] = useState('connecting');
 
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(MONTH_KEYS.map(mk => [mk, true])));
   const params = new URLSearchParams(window.location.search);
@@ -602,6 +603,20 @@ export default function App() {
       }
     })();
   }, [uid]);
+  useEffect(() => {
+  if (!uid) return;
+
+  (async () => {
+    try {
+      const snap = await getDoc(prefsDocRef(uid)); // very lightweight
+      if (snap) setFirebaseStatus('connected');
+    } catch (err) {
+      console.error("Firebase connectivity check failed:", err);
+      setFirebaseStatus('error');
+    }
+  })();
+}, [uid]);
+
 
   /* one-time auto-fill for single-service weekends */
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
@@ -877,6 +892,18 @@ export default function App() {
             </>
           )}
         </div>
+		<div style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }}>
+  {firebaseStatus === 'connected' && (
+    <span style={{ color: '#059669' }}>● Firebase: Connected</span>
+  )}
+  {firebaseStatus === 'connecting' && (
+    <span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>
+  )}
+  {firebaseStatus === 'error' && (
+    <span style={{ color: '#dc2626' }}>● Firebase: Error</span>
+  )}
+</div>
+
       </div>
 
       {/* Header + instructions */}
