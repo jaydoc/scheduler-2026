@@ -25,7 +25,7 @@ const firebaseConfig = (() => {
   return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v9";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v10";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -75,7 +75,7 @@ const ATTENDING_LIMITS = {
   "Jain":      { requested: 9,  claimed: 1, left: 8 },
   "Lal":       { requested: 0,  claimed: 0, left: 0 },
   "Shukla":    { requested: 9,  claimed: 1, left: 8 },
-  "Vivian":    { requested: 0,  claimed: 0, left: 2 },  // as provided
+  "Vivian":    { requested: 0,  claimed: 0, left: 2 },
   "Carlo":     { requested: 5,  claimed: 5, left: 0 },
 };
 
@@ -165,6 +165,20 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
+/* Build availability map: weekendId -> ['RNI'] | ['COA'] | ['RNI','COA'] | [] */
+const availabilityByWeekend = (() => {
+  const m = {};
+  for (const [mk, arr] of Object.entries(months)) {
+    for (const w of arr) {
+      const a = [];
+      if (w.rni === null) a.push(SERVICES.RNI);
+      if (w.coa === null) a.push(SERVICES.COA);
+      m[w.date] = a;
+    }
+  }
+  return m;
+})();
+
 /* ----------------------------------------------------------------------
    Helpers
    ---------------------------------------------------------------------- */
@@ -195,7 +209,6 @@ const MONTH_COLORS = [
 const MONTH_MIN_HEIGHT = 520;
 
 function RadioServiceLimited({ available, value, onChange, disabled, name, optionalLabel }) {
-  // available is array like ['RNI'] or ['COA'] or ['RNI','COA']
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
       {available.includes(SERVICES.RNI) && (
@@ -277,7 +290,6 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
             const rniOpen = w.rni === null;
             const coaOpen = w.coa === null;
             const fullyAssigned = w.isTaken || (!rniOpen && !coaOpen);
-
             const available = [];
             if (rniOpen) available.push(SERVICES.RNI);
             if (coaOpen) available.push(SERVICES.COA);
@@ -322,20 +334,10 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                         <ChoiceSelect
                           disabled={locked || available.length === 0}
                           value={p.mostChoice || 0}
-                          onChange={(choice) => {
-                            // auto-assign the only available service if none picked
-                            if (p.mostService === SERVICES.NONE && available.length === 1 && choice > 0) {
-                              onMostChange(w.date, { ...p, mostService: available[0], mostChoice: choice });
-                            } else {
-                              onMostChange(w.date, { ...p, mostChoice: choice });
-                            }
-                          }}
+                          onChange={(choice) => onMostChange(w.date, { ...p, mostChoice: choice })}
                           placeholder="Most choice…"
                         />
                         {p.mostService !== SERVICES.NONE && p.mostChoice > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostChoice}</span>}
-                        {p.mostService !== SERVICES.NONE && !available.includes(p.mostService) && (
-                          <span style={{ fontSize: 12, color: '#92400e' }}>Selected service is already filled.</span>
-                        )}
                       </div>
                     </div>
 
@@ -349,20 +351,12 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                           value={available.includes(p.leastService) ? p.leastService : SERVICES.NONE}
                           onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
                           name={`least-${w.date}`}
-                          optionalLabel={available.length === 0 ? undefined : '(optional)'}
+                          optionalLabel={available.length ? '(optional)' : undefined}
                         />
                         <ChoiceSelect
-                          disabled={locked || available.length === 0 /* allow choice even if no service picked */}
+                          disabled={locked || available.length === 0}
                           value={p.leastChoice || 0}
-                          onChange={(choice) => {
-                            // If only one service is open and user picks a choice without selecting service, we can auto-set,
-                            // but since least service is optional, only set if currently NONE and you want this behavior.
-                            if (p.leastService === SERVICES.NONE && available.length === 1 && choice > 0) {
-                              onLeastChange(w.date, { ...p, leastService: available[0], leastChoice: choice });
-                            } else {
-                              onLeastChange(w.date, { ...p, leastChoice: choice });
-                            }
-                          }}
+                          onChange={(choice) => onLeastChange(w.date, { ...p, leastChoice: choice })}
                           placeholder="Least choice…"
                         />
                         {p.leastChoice > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastChoice}</span>}
@@ -484,9 +478,7 @@ export default function App() {
         if (prefSnap.exists()) {
           const d = prefSnap.data();
           setSubmitted(Boolean(d.submitted));
-          // Backward compatibility: accept either new shape or old rank-based shape
           if (d.preferences) {
-            // Map rank->choice if old keys present
             const remapped = {};
             for (const [k, v] of Object.entries(d.preferences || {})) {
               remapped[k] = {
@@ -500,10 +492,10 @@ export default function App() {
           } else if (d.top10 || d.bottom10) {
             const next = initEmptyPrefs();
             (d.top10 || []).forEach(t => {
-              next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostChoice: t.rank || t.choice || 0 };
+              next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostChoice: t.choice ?? t.rank ?? 0 };
             });
             (d.bottom10 || []).forEach(b => {
-              next[b.weekend] = { ...next[b.weekend], leastService: (b.service || SERVICES.NONE), leastChoice: b.rank || b.choice || 0 };
+              next[b.weekend] = { ...next[b.weekend], leastService: (b.service || SERVICES.NONE), leastChoice: b.choice ?? b.rank ?? 0 };
             });
             setPrefs(next);
           }
@@ -515,6 +507,28 @@ export default function App() {
       }
     })();
   }, [uid]);
+
+  // One-time auto-fill of service when only one service is available
+  const [autoFilledOnce, setAutoFilledOnce] = useState(false);
+  useEffect(() => {
+    if (autoFilledOnce) return;
+    setPrefs(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const id of allWeekendIds) {
+        const avail = availabilityByWeekend[id] || [];
+        if (avail.length === 1) {
+          const p = next[id] || { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
+          if (p.mostService === SERVICES.NONE) { p.mostService = avail[0]; changed = true; }
+          if (p.leastService === SERVICES.NONE) { p.leastService = avail[0]; changed = true; }
+          next[id] = p;
+        }
+      }
+      if (changed) return next;
+      return prev;
+    });
+    setAutoFilledOnce(true);
+  }, [autoFilledOnce]);
 
   // setters
   const setMost = useCallback((id, v) => {
@@ -529,7 +543,7 @@ export default function App() {
     let mostCount = 0, leastCount = 0;
     for (const p of Object.values(prefs)) {
       if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) mostCount++;
-      if (p.leastChoice > 0) leastCount++; // service optional for least
+      if (p.leastChoice > 0) leastCount++;
     }
     return { mostCount, leastCount };
   }, [prefs]);
@@ -565,7 +579,6 @@ export default function App() {
     await setDoc(prefsDocRef(uid), {
       name: profile.name,
       email: profile.email || '',
-      // Store the new structure, but also include old keys for compatibility
       preferences: Object.fromEntries(Object.entries(prefs).map(([k,v]) => [k, {
         mostService: v.mostService,
         mostChoice: v.mostChoice,
@@ -603,7 +616,7 @@ export default function App() {
     downloadBlob(fn, 'application/msword', html);
   };
 
-  // Jump helpers: expand target month, then scroll
+  // Jump helpers
   const jumpTo = (mk) => {
     setCollapsed(prev => {
       const next = { ...prev, [mk]: false };
@@ -629,7 +642,6 @@ export default function App() {
       const attendee = data.name || '(unknown)';
       const em = data.email || '';
       const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
-      // Support both "rank" and "choice" in older docs
       const pullChoice = (x) => x.choice ?? x.rank;
       data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST', choice: pullChoice(t), service: t.service, weekend: t.weekend, submittedAt }));
       data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', choice: pullChoice(b), service: b.service || '', weekend: b.weekend, submittedAt }));
@@ -644,8 +656,7 @@ export default function App() {
 
   useEffect(() => {
     if (isAdmin && uid && !adminLoaded) loadAdmin().catch(console.error);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, uid]);
+  }, [isAdmin, uid]); // eslint-disable-line
 
   return (
     <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
@@ -690,7 +701,6 @@ export default function App() {
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
 
-        {/* Numbered instructions (uses “choice”, explains ranking) */}
         <ol style={{ margin: '8px 0 12px', paddingLeft: 20, color: '#334155', fontSize: 14, lineHeight: 1.45, listStyle: 'decimal' }}>
           <li style={{ marginBottom: 4 }}>Select your name below. You will see the number of weekends you wanted.</li>
           <li style={{ marginBottom: 4 }}>Expand months as needed to choose as many <strong>Most</strong> (service + choice) and <strong>Least</strong> (choice; service optional) preferred weekends as you need to.</li>
@@ -704,7 +714,6 @@ export default function App() {
           This is a <b>ranking</b> process; selecting more weekends increases the chance you receive more of your preferred weekends overall.
         </div>
 
-        {/* Status line */}
         <div className="mb-3 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
           Status: {status} • Most choices: {counts.mostCount} • Least choices: {counts.leastCount} {submitted ? '• (Locked after submission)' : ''}
         </div>
@@ -722,9 +731,9 @@ export default function App() {
             onChange={e => saveProfile({ ...profile, email: e.target.value })}
             style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260, fontSize:14 }}
           />
-      </div>
+        </div>
 
-        {/* Per-attending targets panel */}
+        {/* Per-attending targets */}
         {profile.name && (
           <div style={{ marginTop: 8, marginBottom: 12 }}>
             {(() => {
@@ -735,15 +744,9 @@ export default function App() {
                   background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px'
                 }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{profile.name}</div>
-                  <div style={{ fontSize: 13, color: '#334155' }}>
-                    <b>Total weekends requested:</b> {m.requested}
-                  </div>
-                  <div style={{ fontSize: 13, color: '#334155' }}>
-                    <b>Assignments already claimed:</b> {m.claimed}
-                  </div>
-                  <div style={{ fontSize: 13, color: '#334155' }}>
-                    <b>Assignments left to be picked:</b> {m.left}
-                  </div>
+                  <div style={{ fontSize: 13, color: '#334155' }}><b>Total weekends requested:</b> {m.requested}</div>
+                  <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments already claimed:</b> {m.claimed}</div>
+                  <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments left to be picked:</b> {m.left}</div>
                 </div>
               ) : (
                 <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa',
@@ -779,9 +782,6 @@ export default function App() {
           {submitted ? 'Locked. Downloads above reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}
         </span>
       </div>
-
-      {/* Admin (optional via ?admin=1) */}
-      {/* Admin table is still available via loadAdmin + CSV export in the sticky bar */}
     </div>
   );
 }
@@ -843,7 +843,7 @@ function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submi
         ))}
       </div>
 
-      {/* Jump strip duplicated at bottom for convenience */}
+      {/* Bottom jump strip */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px', display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
         {MONTH_KEYS.map((mk, i) => (
           <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
