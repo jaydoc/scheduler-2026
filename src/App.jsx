@@ -4,9 +4,10 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v14.1stick — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
+const __APP_VERSION__ = "v13.0 — QuickAdd + RankBoard + DragBuckets + CommandPalette";
+console.log("Scheduler build:", __APP_VERSION__);
 
-/* Firebase config cascade: injected → window → local fallback */
+/* Firebase config: prefer injected, else global fallback, else local */
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
   authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -17,22 +18,24 @@ const LOCAL_FALLBACK = {
   measurementId: "G-TJXCM9P7W2"
 };
 const firebaseConfig = (() => {
-  try { if (typeof __firebase_config !== 'undefined' && __firebase_config) return JSON.parse(__firebase_config); } catch {}
+  try {
+    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+      return JSON.parse(__firebase_config);
+    }
+  } catch {}
   if (typeof window !== 'undefined' && window.FALLBACK_FIREBASE_CONFIG) return window.FALLBACK_FIREBASE_CONFIG;
   return LOCAL_FALLBACK;
 })();
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v14";
 
-/* Firebase */
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v13.0";
+const YEAR = 2026;
+const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-/* Constants */
-const YEAR = 2026;
-const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
-
-/* Attendings (your list with emails) */
+/* Attendings */
 const ATTENDINGS = [
   { name: "Ambal",   email: "nambalav@uab.edu" },
   { name: "Arora",   email: "nitinarora@uabmc.edu" },
@@ -54,7 +57,6 @@ const ATTENDINGS = [
   { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* Requested/claimed/left panel data */
 const ATTENDING_LIMITS = {
   "Ambal":     { requested: 6,  claimed: 4, left: 2 },
   "Schuyler":  { requested: 3,  claimed: 2, left: 1 },
@@ -76,7 +78,7 @@ const ATTENDING_LIMITS = {
   "Carlo":     { requested: 5,  claimed: 5, left: 0 },
 };
 
-/* Calendar (Saturdays) */
+/* Calendar (Saturdays only; Fri/Sun just displayed textually where needed) */
 const months = {
   '01': [
     { day: '10', date: '2026-01-10', rni: null, coa: null },
@@ -160,7 +162,7 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Availability per weekend */
+/* Availability by weekend */
 const availabilityByWeekend = (() => {
   const m = {};
   for (const arr of Object.values(months)) {
@@ -177,10 +179,13 @@ const availabilityByWeekend = (() => {
 /* Helpers */
 function initEmptyPrefs() {
   const base = {};
-  allWeekendIds.forEach(id => { base[id] = { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 }; });
+  allWeekendIds.forEach(id => {
+    base[id] = { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
+  });
   return base;
 }
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
+
 const MONTH_COLORS = [
   { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' },
   { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' },
@@ -197,7 +202,7 @@ const MONTH_COLORS = [
 ];
 const MONTH_MIN_HEIGHT = 520;
 
-/* Select for "choice #" with auto max */
+/* Choice select (auto-extends) */
 function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   const MAX = Math.max(10, maxN || 10);
   return (
@@ -215,7 +220,7 @@ function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   );
 }
 
-/* Limited radio: only open services appear */
+/* Limited radio for available service(s) */
 function RadioServiceLimited({ available, value, onChange, disabled, name }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -267,7 +272,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
           textAlign: 'center',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          justifyContent: 'center',
           gap: 8,
           cursor: 'pointer'
         }}
@@ -372,7 +377,66 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
   );
 }
 
-/* Export helpers */
+/* 2×6 Grid */
+function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
+  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
+
+  const jumpTo = (mk) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [mk]: false };
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`month-${mk}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <div style={{
+        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, minmax(420px, 1fr))',
+        gap: '32px',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        justifyItems: 'stretch'
+      }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <MonthCard
+            key={mk}
+            mk={mk}
+            label={`${MONTH_FULL[i]} ${YEAR}`}
+            items={months[mk]}
+            prefs={prefs}
+            onMostChange={(id, v) => setMost(id, v)}
+            onLeastChange={(id, v) => setLeast(id, v)}
+            collapsed={collapsed[mk]}
+            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
+            cardRef={monthRefs.current[mk]}
+            locked={submitted}
+          />
+        ))}
+      </div>
+
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px', display:'flex', gap:8, justifyContent:'center', overflowX:'auto' }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <a
+            key={mk}
+            onClick={(e) => { e.preventDefault(); jumpTo(mk); }}
+            href={`#month-${mk}`}
+            style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration:'none', color:'#0f172a', flexShrink:0 }}
+          >
+            {MONTH_FULL[i]}
+          </a>
+        ))}
+      </div>
+    </>
+  );
+}
+
+/* CSV/Word helpers */
 function toCSV(rows) {
   const headers = Object.keys(rows[0] || {});
   const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -382,8 +446,10 @@ function toCSV(rows) {
 function downloadBlob(filename, mime, content) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
 }
 function downloadCSV(filename, rows) {
   if (!rows.length) { alert('Nothing to export.'); return; }
@@ -418,7 +484,7 @@ function docHtml(name, email, top10, bottom10) {
   </html>`;
 }
 
-/* Attending identity block */
+/* Identity block */
 function AttendingIdentity({ profile, saveProfile }) {
   return (
     <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
@@ -464,197 +530,461 @@ function AttendingIdentity({ profile, saveProfile }) {
   );
 }
 
-/* 2×6 grid */
-function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
-  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
+/* Command Palette */
+function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+  const [open, setOpen] = React.useState(false);
+  const [input, setInput] = React.useState("");
+  const [preview, setPreview] = React.useState({ ok: false, msg: "Type like: “jul 18 rni m” or “nov 21 coa l3”" });
+  const inputRef = React.useRef(null);
 
-  const jumpTo = (mk) => {
-    setCollapsed(prev => {
-      const next = { ...prev, [mk]: false };
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`month-${mk}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return next;
-    });
+  const MONTH_TO_MM = {
+    jan:'01', january:'01',
+    feb:'02', february:'02',
+    mar:'03', march:'03',
+    apr:'04', april:'04',
+    may:'05',
+    jun:'06', june:'06',
+    jul:'07', july:'07',
+    aug:'08', august:'08',
+    sep:'09', sept:'09', september:'09',
+    oct:'10', october:'10',
+    nov:'11', november:'11',
+    dec:'12', december:'12',
   };
 
-  return (
-    <>
-      <div style={{
-        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-        gap: '32px',
-        alignItems: 'stretch',
-        justifyContent: 'center',
-        justifyItems: 'stretch'
-      }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <MonthCard
-            key={mk}
-            mk={mk}
-            label={`${MONTH_FULL[i]} ${YEAR}`}
-            items={months[mk]}
-            prefs={prefs}
-            onMostChange={(id, v) => setMost(id, v)}
-            onLeastChange={(id, v) => setLeast(id, v)}
-            collapsed={collapsed[mk]}
-            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
-            cardRef={monthRefs.current[mk]}
-            locked={submitted}
-          />
-        ))}
-      </div>
-
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px', display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
-            {MONTH_FULL[i]}
-          </button>
-        ))}
-      </div>
-    </>
-  );
-}
-
-/* Optional Reorder Mode (drag to rank) */
-function ReorderPanel({ prefs, setPrefs, submitted }) {
-  const [mode, setMode] = useState(false);
-
-  const { most, least } = useMemo(() => {
-    const list = Object.entries(prefs);
-    const m = list
-      .filter(([_, p]) => p.mostService !== SERVICES.NONE && p.mostChoice > 0)
-      .map(([id, p]) => ({ id, label: id, service: p.mostService, choice: p.mostChoice }))
-      .sort((a,b) => a.choice - b.choice);
-    const l = list
-      .filter(([_, p]) => p.leastService !== SERVICES.NONE && p.leastChoice > 0)
-      .map(([id, p]) => ({ id, label: id, service: p.leastService, choice: p.leastChoice }))
-      .sort((a,b) => a.choice - b.choice);
-    return { most: m, least: l };
+  const nextRanks = React.useMemo(() => {
+    let most = 0, least = 0;
+    for (const p of Object.values(prefs || {})) {
+      if (p?.mostChoice > most) most = p.mostChoice;
+      if (p?.leastChoice > least) least = p.leastChoice;
+    }
+    return { nextMost: most + 1, nextLeast: least + 1 };
   }, [prefs]);
 
-  const [dragState, setDragState] = useState({ list: 'most', from: -1 });
+  const weekendIds = React.useMemo(() => {
+    const out = new Set();
+    Object.values(months).forEach(arr => arr.forEach(w => out.add(w.date)));
+    return out;
+  }, [months]);
 
-  const applyOrder = (which, arr) => {
-    setPrefs(prev => {
-      const next = { ...prev };
-      arr.forEach((item, idx) => {
-        const p = next[item.id] || {};
-        if (which === 'most') next[item.id] = { ...p, mostChoice: idx + 1 };
-        else next[item.id] = { ...p, leastChoice: idx + 1 };
-      });
-      return next;
-    });
-  };
+  function parseCommand(raw) {
+    const s = (raw || "").trim().toLowerCase();
+    if (!s) return { ok: false, msg: "Type like: “jul 18 rni m” or “nov 21 coa l3”" };
 
-  const List = ({ which, items }) => (
-    <div style={{ flex: 1, minWidth: 260, border: '1px dashed #cbd5e1', borderRadius: 10, padding: 8, background: '#f8fafc' }}>
-      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{which === 'most' ? 'Most (drag to reorder)' : 'Least (drag to reorder)'}</div>
-      {(items.length === 0) && <div style={{ fontSize: 12, color: '#64748b' }}>Nothing to reorder yet.</div>}
-      {items.map((it, idx) => (
-        <div
-          key={it.id}
-          draggable={!submitted}
-          onDragStart={() => setDragState({ list: which, from: idx })}
-          onDragOver={e => e.preventDefault()}
-          onDrop={() => {
-            if (dragState.list !== which) return;
-            const arr = items.slice();
-            const [moved] = arr.splice(dragState.from, 1);
-            arr.splice(idx, 0, moved);
-            applyOrder(which, arr);
-          }}
-          style={{
-            background: '#fff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 8,
-            padding: '6px 8px',
-            marginBottom: 6,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            cursor: submitted ? 'not-allowed' : 'grab'
-          }}
-          title={submitted ? 'Locked after submission' : 'Drag to reorder'}
-        >
-          <div style={{ fontSize: 12, color: '#0f172a' }}>
-            <b>#{idx + 1}</b> • {it.service} • {it.id}
-          </div>
-          <div style={{ fontSize: 16, opacity: 0.6 }}>↕</div>
-        </div>
-      ))}
-    </div>
-  );
+    const tokens = s.split(/\s+/);
+
+    let mm = null;
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      if (MONTH_TO_MM[t]) { mm = MONTH_TO_MM[t]; break; }
+    }
+
+    let dd = null;
+    for (const t of tokens) {
+      const m = t.match(/^(\d{1,2})$/);
+      if (m) { dd = m[1].padStart(2, '0'); break; }
+      const m2 = t.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+      if (m2) { dd = m2[2].padStart(2, '0'); if (!mm) mm = String(m2[1]).padStart(2,'0'); }
+    }
+
+    let service = null;
+    if (/\brni\b/.test(s)) service = 'RNI';
+    if (/\bcoa\b/.test(s)) service = 'COA';
+
+    let listType = null;
+    let explicitRank = null;
+    for (const t of tokens) {
+      if (/^m(ost)?\d*$/.test(t)) {
+        listType = 'most';
+        const n = t.replace(/[^\d]/g,'');
+        if (n) explicitRank = parseInt(n,10);
+      } else if (/^l(east)?\d*$/.test(t)) {
+        listType = 'least';
+        const n = t.replace(/[^\d]/g,'');
+        if (n) explicitRank = parseInt(n,10);
+      }
+    }
+    if (!explicitRank) {
+      const tr = s.match(/\b(?:m|most|l|least)\s*(\d{1,2})\b/);
+      if (tr) explicitRank = parseInt(tr[1], 10);
+    }
+
+    if (!mm || !dd) return { ok: false, msg: "Need a month and day. Example: “jul 18 rni m”" };
+    const id = `${YEAR}-${mm}-${dd}`;
+    if (!weekendIds.has(id)) return { ok: false, msg: `No weekend found for ${YEAR}-${mm}-${dd}. Check the Saturday date.` };
+
+    const avail = availabilityByWeekend[id] || [];
+    let chosenService = service;
+
+    if (!listType) return { ok: false, msg: "Add “m” (Most) or “l” (Least). Example: “nov 21 coa l3”" };
+    if (avail.length === 0) return { ok: false, msg: "That weekend is fully assigned." };
+
+    if (!chosenService) {
+      if (avail.length === 1) chosenService = avail[0];
+      else return { ok: false, msg: "Specify service: rni or coa." };
+    } else {
+      if (!avail.includes(chosenService)) return { ok: false, msg: `Service ${chosenService} is not open on that weekend.` };
+    }
+
+    const rank = explicitRank || (listType === 'most' ? nextRanks.nextMost : nextRanks.nextLeast);
+    if (rank <= 0) return { ok: false, msg: "Rank must be ≥ 1." };
+
+    return {
+      ok: true,
+      msg: `${listType === 'most' ? 'MOST' : 'LEAST'} #${rank} — ${chosenService} — ${id}`,
+      action: { id, listType, chosenService, rank }
+    };
+  }
+
+  function applyAction(action) {
+    if (!action || submitted) return;
+    const { id, listType, chosenService, rank } = action;
+    if (listType === 'most') setMost(id, { mostService: chosenService, mostChoice: rank });
+    else setLeast(id, { leastService: chosenService, leastChoice: rank });
+  }
+
+  useEffect(() => { setPreview(parseCommand(input)); }, [input, prefs]); // eslint-disable-line
+
+  useEffect(() => {
+    function onKey(e) {
+      const tag = (e.target && e.target.tagName) || '';
+      const isTyping = /INPUT|TEXTAREA|SELECT/.test(tag);
+      if (e.key === '/' && !isTyping && !open) {
+        e.preventDefault();
+        setOpen(true);
+        setTimeout(() => inputRef.current?.focus(), 0);
+      } else if (e.key === 'Escape' && open) {
+        setOpen(false);
+      } else if (e.key === 'Enter' && open) {
+        const p = parseCommand(input);
+        if (p.ok && p.action) {
+          applyAction(p.action);
+          setInput('');
+          setPreview({ ok: false, msg: "Added. Next command…" });
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, input, prefs, submitted]); // eslint-disable-line
+
+  if (!open) {
+    return (
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 8px', color:'#475569', fontSize:12 }}>
+        Tip: press <code style={{ background:'#f1f5f9', padding:'2px 6px', borderRadius:6 }}>/</code> for the command palette
+        {submitted ? ' (disabled after submission).' : '.'}
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <label style={{ fontWeight: 800, fontSize: 14 }}>Reorder Mode:</label>
-        <input type="checkbox" checked={mode} onChange={e => setMode(e.target.checked)} disabled={submitted} />
-        <span style={{ fontSize: 12, color: '#475569' }}>{submitted ? 'Locked after submission' : 'Drag items to change choice #'}</span>
-      </div>
-      {mode && (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <List which="most" items={most} />
-          <List which="least" items={least} />
+    <div style={{
+      position:'fixed', inset:0, zIndex:100, background:'rgba(0,0,0,0.25)',
+      display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop: '12vh'
+    }}
+      onClick={() => setOpen(false)}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: 'min(900px, 92vw)', background:'#fff', borderRadius: 12, boxShadow:'0 20px 60px rgba(0,0,0,0.25)', overflow:'hidden' }}
+      >
+        <div style={{ padding: 12, borderBottom:'1px solid #e5e7eb', display:'flex', alignItems:'center', gap:8 }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder='Try: "jul 18 rni m" or "nov 21 coa l3"'
+            style={{ flex:1, padding:'10px 12px', border:'1px solid #e2e8f0', borderRadius:8, fontSize:14 }}
+            disabled={submitted}
+          />
+          <button
+            onClick={() => setOpen(false)}
+            style={{ padding:'8px 10px', borderRadius:8, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}
+          >Close</button>
         </div>
-      )}
+
+        <div style={{ padding: 12, fontSize: 13 }}>
+          <div style={{
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: '1px solid ' + (preview.ok ? '#86efac' : '#fecaca'),
+            background: preview.ok ? '#ecfdf5' : '#fff1f2',
+            color: preview.ok ? '#065f46' : '#7f1d1d',
+            marginBottom: 10
+          }}>
+            {preview.msg}
+          </div>
+
+          <div style={{ color:'#475569', lineHeight:1.5 }}>
+            <b>Syntax</b>: <code>month day [service] [m|l][rank]</code>
+            <ul style={{ margin:'6px 0 0 18px' }}>
+              <li>Examples: <code>jul 18 rni m</code>, <code>nov 21 coa l3</code>, <code>sep 12 m</code> (auto-picks service if only one open)</li>
+              <li>Services: <code>rni</code> or <code>coa</code>. Required if both are open.</li>
+              <li>Lists: <code>m</code> or <code>most</code>, <code>l</code> or <code>least</code>.</li>
+              <li>Rank optional; auto-increments to next available.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
-/* Admin Heatmap — demand score */
-function AdminHeatmap({ adminRows }) {
-  // Score weekends by + (11 - Most choice) and - (11 - Least choice)
-  const scoreByWeekend = useMemo(() => {
-    const m = {};
-    adminRows.forEach(r => {
-      const base = 11 - Number(r.choice || 0);
-      if (!m[r.weekend]) m[r.weekend] = 0;
-      if (r.kind === 'MOST') m[r.weekend] += base;
-      else m[r.weekend] -= base;
-    });
-    return m;
-  }, [adminRows]);
+/* QuickAdd */
+function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+  const [month, setMonth] = React.useState('01');
+  const [weekendId, setWeekendId] = React.useState('');
+  const [service, setService] = React.useState('');
+  const [lastAction, setLastAction] = React.useState(null);
 
-  const box = (score) => {
-    const s = score || 0;
-    // green for positive demand, red for negative, neutral gray
-    let bg = '#f1f5f9', color = '#0f172a';
-    if (s > 0) { bg = '#dcfce7'; color = '#065f46'; }
-    if (s >= 8) { bg = '#bbf7d0'; color = '#065f46'; }
-    if (s <= -1) { bg = '#fee2e2'; color = '#7f1d1d'; }
-    if (s <= -8) { bg = '#fecaca'; color = '#7f1d1d'; }
-    return { background: bg, color, border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px', fontSize: 12 };
-  };
+  const options = React.useMemo(() => {
+    const arr = months[month] || [];
+    return arr.map(w => ({ id: w.date, label: `${w.date} (${w.day})` }));
+  }, [months, month]);
+
+  const nextRanks = React.useMemo(() => {
+    let most = 0, least = 0;
+    for (const p of Object.values(prefs || {})) {
+      if (p?.mostChoice > most) most = p.mostChoice;
+      if (p?.leastChoice > least) least = p.leastChoice;
+    }
+    return { nextMost: most + 1, nextLeast: least + 1 };
+  }, [prefs]);
+
+  const avail = availabilityByWeekend[weekendId] || [];
+  React.useEffect(() => {
+    if (weekendId && avail.length === 1) setService(avail[0]);
+    if (weekendId && avail.length > 1 && !avail.includes(service)) setService('');
+  }, [weekendId, avail]); // eslint-disable-line
+
+  const canPickService = avail.length > 0;
+  const disabled = submitted;
+
+  function doAdd(kind) {
+    if (!weekendId) { alert('Pick a weekend'); return; }
+    if (avail.length === 0) { alert('That weekend is fully assigned.'); return; }
+    if (!service) { alert('Pick service (RNI/COA)'); return; }
+    const rank = kind === 'most' ? nextRanks.nextMost : nextRanks.nextLeast;
+
+    if (kind === 'most') {
+      setMost(weekendId, { mostService: service, mostChoice: rank });
+      setLastAction({ kind, weekendId, service, rank });
+    } else {
+      setLeast(weekendId, { leastService: service, leastChoice: rank });
+      setLastAction({ kind, weekendId, service, rank });
+    }
+  }
+
+  function undo() {
+    if (!lastAction) return;
+    const { kind, weekendId } = lastAction;
+    if (kind === 'most') setMost(weekendId, { mostService: 'none', mostChoice: 0 });
+    else setLeast(weekendId, { leastService: 'none', leastChoice: 0 });
+    setLastAction(null);
+  }
 
   return (
-    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '12px 12px 18px' }}>
-      <div style={{ fontWeight: 800, marginBottom: 8 }}>Admin: Weekend Demand Heatmap</div>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        gap: 10
-      }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <div key={mk} style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
-            <div style={{ padding: 8, fontWeight: 800, borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
-              {MONTH_FULL[i]} {YEAR}
+    <div style={{ maxWidth:1120, margin:'0 auto', padding:'8px 12px 12px' }}>
+      <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap',
+                    border:'1px solid #e5e7eb', borderRadius:12, padding:10, background:'#fff' }}>
+        <strong style={{ fontSize:14 }}>Quick Add:</strong>
+
+        <select value={month} onChange={e=>{setMonth(e.target.value); setWeekendId('');}}
+                style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8 }}>
+          {MONTH_KEYS.map((mk,i)=> <option key={mk} value={mk}>{MONTH_FULL[i]}</option>)}
+        </select>
+
+        <select value={weekendId} onChange={e=>setWeekendId(e.target.value)}
+                style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220 }}>
+          <option value="">Weekend…</option>
+          {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+
+        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <label style={{ display:'flex', alignItems:'center', gap:4, fontSize:13 }}>
+            <input type="radio" name="qa-service" disabled={!canPickService || disabled}
+                   checked={service==='RNI'} onChange={()=>setService('RNI')} />
+            RNI
+          </label>
+          <label style={{ display:'flex', alignItems:'center', gap:4, fontSize:13 }}>
+            <input type="radio" name="qa-service" disabled={!canPickService || disabled}
+                   checked={service==='COA'} onChange={()=>setService('COA')} />
+            COA
+          </label>
+        </div>
+
+        <button onClick={()=>doAdd('most')}
+                disabled={disabled || !weekendId || !service}
+                style={{ padding:'6px 10px', borderRadius:10, border:'1px solid #2563eb', background:'#3b82f6', color:'#fff' }}>
+          Add to Most #{nextRanks.nextMost}
+        </button>
+        <button onClick={()=>doAdd('least')}
+                disabled={disabled || !weekendId || !service}
+                style={{ padding:'6px 10px', borderRadius:10, border:'1px solid #dc2626', background:'#ef4444', color:'#fff' }}>
+          Add to Least #{nextRanks.nextLeast}
+        </button>
+
+        <span style={{ flex:1 }} />
+        <button onClick={undo}
+                disabled={!lastAction || disabled}
+                style={{ padding:'6px 10px', borderRadius:10, border:'1px solid #e5e7eb', background:'#fff' }}>
+          Undo
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* RankBoard */
+function RankBoard({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+  const [q, setQ] = React.useState('');
+  const rows = React.useMemo(() => {
+    const out = [];
+    for (const [mk, arr] of Object.entries(months)) {
+      const mName = MONTH_FULL[parseInt(mk,10)-1];
+      for (const w of arr) {
+        const id = w.date;
+        const avail = availabilityByWeekend[id] || [];
+        const p = prefs[id] || {};
+        out.push({
+          id,
+          label: `${mName} ${id.slice(8)} (${w.day})`,
+          openRNI: avail.includes('RNI'),
+          openCOA: avail.includes('COA'),
+          most: p.mostService !== 'none' && p.mostChoice > 0 ? `${p.mostService} #${p.mostChoice}` : '',
+          least: p.leastService !== 'none' && p.leastChoice > 0 ? `${p.leastService} #${p.leastChoice}` : '',
+        });
+      }
+    }
+    return out;
+  }, [months, availabilityByWeekend, prefs]);
+
+  const filtered = rows.filter(r => r.label.toLowerCase().includes(q.toLowerCase()));
+
+  const nextRanks = React.useMemo(() => {
+    let most = 0, least = 0;
+    for (const p of Object.values(prefs || {})) {
+      if (p?.mostChoice > most) most = p.mostChoice;
+      if (p?.leastChoice > least) least = p.leastChoice;
+    }
+    return { nextMost: most + 1, nextLeast: least + 1 };
+  }, [prefs]);
+
+  function add(id, svc, kind) {
+    if (submitted) return;
+    if (kind === 'most') setMost(id, { mostService: svc, mostChoice: nextRanks.nextMost });
+    else setLeast(id, { leastService: svc, leastChoice: nextRanks.nextLeast });
+  }
+
+  return (
+    <div style={{ maxWidth:1120, margin:'0 auto', padding:'8px 12px 12px' }}>
+      <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:8 }}>
+        <strong>Rank Board:</strong>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Search month, day, holiday…"
+               style={{ flex:1, padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8 }} />
+      </div>
+      <div style={{ border:'1px solid #e5e7eb', borderRadius:12, overflow:'hidden' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr', background:'#f8fafc', padding:'8px 10px', fontWeight:700, fontSize:13 }}>
+          <div>Weekend</div><div>Open</div><div>Most</div><div>Least</div><div>Quick Add</div>
+        </div>
+        <div style={{ maxHeight: 420, overflow:'auto', background:'#fff' }}>
+          {filtered.map(r => (
+            <div key={r.id} style={{ display:'grid', gridTemplateColumns:'1.5fr 1fr 1fr 1fr 1fr', padding:'8px 10px', borderTop:'1px solid #f1f5f9', alignItems:'center', fontSize:13 }}>
+              <div>{r.label}</div>
+              <div>
+                {r.openRNI && <span style={{ marginRight:6, padding:'2px 6px', border:'1px solid #bfdbfe', borderRadius:8, background:'#eff6ff' }}>RNI</span>}
+                {r.openCOA && <span style={{ padding:'2px 6px', border:'1px solid #c7d2fe', borderRadius:8, background:'#eef2ff' }}>COA</span>}
+              </div>
+              <div>{r.most}</div>
+              <div>{r.least}</div>
+              <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                {r.openRNI && <button disabled={submitted} onClick={()=>add(r.id,'RNI','most')}  style={{ padding:'4px 8px', borderRadius:8, border:'1px solid #2563eb', background:'#3b82f6', color:'#fff' }}>+Most</button>}
+                {r.openCOA && <button disabled={submitted} onClick={()=>add(r.id,'COA','most')}  style={{ padding:'4px 8px', borderRadius:8, border:'1px solid #2563eb', background:'#3b82f6', color:'#fff' }}>+Most</button>}
+                {r.openRNI && <button disabled={submitted} onClick={()=>add(r.id,'RNI','least')} style={{ padding:'4px 8px', borderRadius:8, border:'1px solid #dc2626', background:'#ef4444', color:'#fff' }}>+Least</button>}
+                {r.openCOA && <button disabled={submitted} onClick={()=>add(r.id,'COA','least')} style={{ padding:'4px 8px', borderRadius:8, border:'1px solid #dc2626', background:'#ef4444', color:'#fff' }}>+Least</button>}
+              </div>
             </div>
-            <div style={{ padding: 8, display: 'grid', gap: 6 }}>
-              {months[mk].map(w => (
-                <div key={w.date} style={box(scoreByWeekend[w.date])}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{w.date}</span>
-                    <b>{scoreByWeekend[w.date] || 0}</b>
-                  </div>
-                </div>
-              ))}
-            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ fontSize:12, color:'#475569', marginTop:6 }}>Tip: combine with the Command Palette for power use.</div>
+    </div>
+  );
+}
+
+/* DragBuckets */
+function DragBuckets({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+  const [dragId, setDragId] = React.useState(null);
+
+  const openWeekends = React.useMemo(() => {
+    const out = [];
+    for (const arr of Object.values(months)) {
+      for (const w of arr) {
+        const id = w.date;
+        const avail = availabilityByWeekend[id] || [];
+        if (avail.length) out.push({ id, avail, label: `${id} (${w.day})` });
+      }
+    }
+    return out;
+  }, [months, availabilityByWeekend]);
+
+  const nextRanks = React.useMemo(() => {
+    let most = 0, least = 0;
+    for (const p of Object.values(prefs || {})) {
+      if (p?.mostChoice > most) most = p.mostChoice;
+      if (p?.leastChoice > least) least = p.leastChoice;
+    }
+    return { nextMost: most + 1, nextLeast: least + 1 };
+  }, [prefs]);
+
+  function onDragStart(id) { setDragId(id); }
+  function onDrop(kind, svc) {
+    if (!dragId || submitted) return;
+    if (kind === 'most') setMost(dragId, { mostService: svc,   mostChoice:  nextRanks.nextMost });
+    else                 setLeast(dragId, { leastService: svc, leastChoice: nextRanks.nextLeast });
+    setDragId(null);
+  }
+
+  const bucketStyle = { flex:1, minHeight:120, padding:10, border:'2px dashed #e5e7eb', borderRadius:12, background:'#fff' };
+
+  return (
+    <div style={{ maxWidth:1120, margin:'0 auto', padding:'8px 12px 12px' }}>
+      <div style={{ display:'flex', gap:12, alignItems:'stretch', flexWrap:'wrap' }}>
+        <div style={{ flexBasis:'40%', minWidth:280 }}>
+          <div style={{ fontWeight:800, marginBottom:6 }}>Available Weekends</div>
+          <div style={{ border:'1px solid #e5e7eb', borderRadius:12, padding:8, background:'#fff', maxHeight:300, overflow:'auto' }}>
+            {openWeekends.map(w => (
+              <div key={w.id} draggable={!submitted} onDragStart={()=>onDragStart(w.id)}
+                   style={{ display:'flex', justifyContent:'space-between', alignItems:'center',
+                            border:'1px solid #e5e7eb', borderRadius:8, padding:'6px 8px', marginBottom:6, fontSize:13, cursor:'grab' }}>
+                <span>{w.label}</span>
+                <span>
+                  {w.avail.includes('RNI') && <span style={{ marginRight:6, padding:'2px 6px', border:'1px solid #bfdbfe', borderRadius:8, background:'#eff6ff' }}>RNI</span>}
+                  {w.avail.includes('COA') && <span style={{ padding:'2px 6px', border:'1px solid #c7d2fe', borderRadius:8, background:'#eef2ff' }}>COA</span>}
+                </span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
+
+        <div style={{ flexBasis:'58%', minWidth:320, display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+          <div onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop('most','RNI')}>
+            <div style={{ fontWeight:800, marginBottom:6 }}>Drop to add Most (RNI)</div>
+            <div style={bucketStyle}>Next rank: #{nextRanks.nextMost}</div>
+          </div>
+          <div onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop('most','COA')}>
+            <div style={{ fontWeight:800, marginBottom:6 }}>Drop to add Most (COA)</div>
+            <div style={bucketStyle}>Next rank: #{nextRanks.nextMost}</div>
+          </div>
+          <div onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop('least','RNI')}>
+            <div style={{ fontWeight:800, marginBottom:6 }}>Drop to add Least (RNI)</div>
+            <div style={bucketStyle}>Next rank: #{nextRanks.nextLeast}</div>
+          </div>
+          <div onDragOver={(e)=>e.preventDefault()} onDrop={()=>onDrop('least','COA')}>
+            <div style={{ fontWeight:800, marginBottom:6 }}>Drop to add Least (COA)</div>
+            <div style={bucketStyle}>Next rank: #{nextRanks.nextLeast}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -664,15 +994,21 @@ function AdminHeatmap({ adminRows }) {
 export default function App() {
   const [uid, setUid] = useState(null);
   const [status, setStatus] = useState('Authenticating…');
-  const [firebaseStatus, setFirebaseStatus] = useState('connecting');
+  const [firebaseStatus, setFirebaseStatus] = useState('connecting'); // connecting | connected | error
   const [prefs, setPrefs] = useState(initEmptyPrefs());
   const [profile, setProfile] = useState({ name: '', email: '' });
   const [submitted, setSubmitted] = useState(false);
 
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(MONTH_KEYS.map(mk => [mk, true])));
-
   const params = new URLSearchParams(window.location.search);
   const isAdmin = params.get('admin') === '1';
+
+  // UI flags
+  const paramsUI = new URLSearchParams(window.location.search);
+  const UI_MODE = (paramsUI.get('ui') || 'legacy').toLowerCase();
+  const SHOW_QUICKADD  = UI_MODE === 'quickadd'  || UI_MODE === 'combo';
+  const SHOW_RANKBOARD = UI_MODE === 'rankboard' || UI_MODE === 'combo';
+  const SHOW_DRAG      = UI_MODE === 'drag';
 
   useEffect(() => {
     (async () => {
@@ -683,6 +1019,8 @@ export default function App() {
         onAuthStateChanged(auth, (u) => {
           if (u) setUid(u.uid);
           setStatus('Loading profile & preferences…');
+          // simple connectivity mark
+          setFirebaseStatus(u ? 'connected' : 'connecting');
         });
       } catch (e) {
         console.error(e);
@@ -739,16 +1077,7 @@ export default function App() {
     })();
   }, [uid]);
 
-  /* connectivity check (already set to connected above on success) */
-  useEffect(() => {
-    if (!uid) return;
-    (async () => {
-      try { await getDoc(prefsDocRef(uid)); setFirebaseStatus('connected'); }
-      catch (err) { console.error("Firebase connectivity check failed:", err); setFirebaseStatus('error'); }
-    })();
-  }, [uid]);
-
-  /* one-time auto-fill for single-service weekends */
+  /* one-time auto-fill both Most and Least service when only one option is available */
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
   useEffect(() => {
     if (autoFilledOnce) return;
@@ -778,18 +1107,23 @@ export default function App() {
 
   const counts = useMemo(() => {
     let mostCount = 0, leastCount = 0;
-    let mostRNI = 0, mostCOA = 0, leastRNI = 0, leastCOA = 0;
     for (const p of Object.values(prefs)) {
-      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) { mostCount++; if (p.mostService === SERVICES.RNI) mostRNI++; else mostCOA++; }
-      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) { leastCount++; if (p.leastService === SERVICES.RNI) leastRNI++; else leastCOA++; }
+      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) mostCount++;
+      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) leastCount++;
     }
-    return { mostCount, leastCount, mostRNI, mostCOA, leastRNI, leastCOA };
+    return { mostCount, leastCount };
   }, [prefs]);
 
   const saveProfile = async (next) => {
     setProfile(next);
     if (!uid) return;
-    await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
+    try {
+      await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
+      setFirebaseStatus('connected');
+    } catch (e) {
+      console.error(e);
+      setFirebaseStatus('error');
+    }
   };
 
   const assembleTopBottom = useCallback(() => {
@@ -811,21 +1145,28 @@ export default function App() {
     if (badLeast) { alert('For every “Least” choice, please select a service (RNI or COA).'); return; }
 
     const { top10, bottom10 } = assembleTopBottom();
-    await setDoc(prefsDocRef(uid), {
-      name: profile.name,
-      email: profile.email || '',
-      preferences: Object.fromEntries(Object.entries(prefs).map(([k,v]) => [k, {
-        mostService: v.mostService, mostChoice: v.mostChoice, mostRank: v.mostChoice,
-        leastService: v.leastService, leastChoice: v.leastChoice, leastRank: v.leastChoice,
-      }])),
-      top10: top10.map(t => ({ weekend: t.weekend, choice: t.choice, rank: t.choice, service: t.service })),
-      bottom10: bottom10.map(b => ({ weekend: b.weekend, choice: b.choice, rank: b.choice, service: b.service })),
-      submitted: true,
-      submittedAt: serverTimestamp(),
-      lastUpdated: serverTimestamp()
-    }, { merge: true });
-    setSubmitted(true);
-    alert('Preferences submitted. Your view is now locked.');
+    try {
+      await setDoc(prefsDocRef(uid), {
+        name: profile.name,
+        email: profile.email || '',
+        preferences: Object.fromEntries(Object.entries(prefs).map(([k,v]) => [k, {
+          mostService: v.mostService, mostChoice: v.mostChoice, mostRank: v.mostChoice,
+          leastService: v.leastService, leastChoice: v.leastChoice, leastRank: v.leastChoice,
+        }])),
+        top10: top10.map(t => ({ weekend: t.weekend, choice: t.choice, rank: t.choice, service: t.service })),
+        bottom10: bottom10.map(b => ({ weekend: b.weekend, choice: b.choice, rank: b.choice, service: b.service })),
+        submitted: true,
+        submittedAt: serverTimestamp(),
+        lastUpdated: serverTimestamp()
+      }, { merge: true });
+      setSubmitted(true);
+      setFirebaseStatus('connected');
+      alert('Preferences submitted. Downloads now reflect your final locked choices.');
+    } catch (e) {
+      console.error(e);
+      setFirebaseStatus('error');
+      alert('There was an error submitting. Please try again.');
+    }
   };
 
   const downloadMyCSV = () => {
@@ -846,83 +1187,86 @@ export default function App() {
 
   const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
 
-  /* Admin CSV export */
+  /* Admin CSV */
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoaded, setAdminLoaded] = useState(false);
   const loadAdmin = async () => {
-    const q = query(collectionGroup(db, 'preferences'));
-    const snap = await getDocs(q);
-    const rows = [];
-    snap.forEach(d => {
-      const data = d.data();
-      if (!data || !data.top10 || !data.bottom10) return;
-      const attendee = data.name || '(unknown)';
-      const em = data.email || '';
-      const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
-      const pull = (x) => x.choice ?? x.rank;
-      data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST',  choice: pull(t), service: t.service, weekend: t.weekend, submittedAt }));
-      data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', choice: pull(b), service: b.service || '', weekend: b.weekend, submittedAt }));
-    });
-    rows.sort((a,b) => (a.attendee||'').localeCompare(b.attendee||'') || a.kind.localeCompare(b.kind) || (a.choice - b.choice));
-    setAdminRows(rows);
-    setAdminLoaded(true);
+    try {
+      const q = query(collectionGroup(db, 'preferences'));
+      const snap = await getDocs(q);
+      const rows = [];
+      snap.forEach(d => {
+        const data = d.data();
+        if (!data || !data.top10 || !data.bottom10) return;
+        const attendee = data.name || '(unknown)';
+        const em = data.email || '';
+        const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
+        const pull = (x) => x.choice ?? x.rank;
+        data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST',  choice: pull(t), service: t.service, weekend: t.weekend, submittedAt }));
+        data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', choice: pull(b), service: b.service || '', weekend: b.weekend, submittedAt }));
+      });
+      rows.sort((a,b) => (a.attendee||'').localeCompare(b.attendee||'') || a.kind.localeCompare(b.kind) || (a.choice - b.choice));
+      setAdminRows(rows);
+      setAdminLoaded(true);
+      setFirebaseStatus('connected');
+    } catch (e) {
+      console.error(e);
+      setFirebaseStatus('error');
+    }
   };
-  useEffect(() => { if (isAdmin && uid && !adminLoaded) { loadAdmin().catch(console.error); } }, [isAdmin, uid, adminLoaded]);
-
-  /* Balance hint */
-  const balanceHint = (() => {
-    const total = counts.mostRNI + counts.mostCOA;
-    if (total < 4) return null;
-    const ratio = counts.mostRNI / Math.max(1, total);
-    if (ratio < 0.4) return { type: 'warn', msg: `Your “Most” list is heavily COA-skewed (${counts.mostCOA}/${total}). Try adding some RNI for balance.` };
-    if (ratio > 0.6) return { type: 'warn', msg: `Your “Most” list is heavily RNI-skewed (${counts.mostRNI}/${total}). Try adding some COA for balance.` };
-    return { type: 'ok', msg: `Good balance on “Most”: RNI ${counts.mostRNI} • COA ${counts.mostCOA}.` };
-  })();
+  useEffect(() => {
+    if (isAdmin && uid && !adminLoaded) { loadAdmin().catch(console.error); }
+  }, [isAdmin, uid, adminLoaded]); // eslint-disable-line
 
   return (
     <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
       {/* Sticky header with Jump + Firebase badge inline */}
-<div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
-  <div
-    style={{
-      maxWidth: 1120,
-      margin: '0 auto',
-      padding: '8px 12px',
-      display: 'flex',
-      gap: 8,
-      alignItems: 'center',
-      flexWrap: 'nowrap',         // force single line
-      whiteSpace: 'nowrap',       // no wrapping
-      overflowX: 'auto'           // scroll if crowded
-    }}
-  >
-    <strong style={{ marginRight: 8, flexShrink: 0 }}>Jump:</strong>
-    {MONTH_KEYS.map((mk, i) => (
-      <a
-        key={mk}
-        onClick={(e) => { e.preventDefault(); setCollapsed(c => ({ ...c, [mk]: false })); const el = document.getElementById(`month-${mk}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-        href={`#month-${mk}`}
-        style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration: 'none', color: '#0f172a', flexShrink: 0 }}
-      >
-        {MONTH_FULL[i].slice(0,3)}
-      </a>
-    ))}
-    <span style={{ flex: 1 }} />
-    <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-      {firebaseStatus === 'connected'  && (<span style={{ color: '#059669' }}>● Firebase: Connected</span>)}
-      {firebaseStatus === 'connecting' && (<span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>)}
-      {firebaseStatus === 'error'      && (<span style={{ color: '#dc2626' }}>● Firebase: Error</span>)}
-    </span>
-    <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Collapse all</button>
-    <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Expand all</button>
-    <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #059669", background: '#10b981', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My CSV</button>
-    <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #4f46e5", background: '#6366f1', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My Word</button>
-  </div>
-</div>
+      <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
+        <div
+          style={{
+            maxWidth: 1120,
+            margin: '0 auto',
+            padding: '8px 12px',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            flexWrap: 'nowrap',
+            whiteSpace: 'nowrap',
+            overflowX: 'auto'
+          }}
+        >
+          <strong style={{ marginRight: 8, flexShrink: 0 }}>Jump:</strong>
+          {MONTH_KEYS.map((mk, i) => (
+            <a
+              key={mk}
+              onClick={(e) => {
+                e.preventDefault();
+                setCollapsed(c => ({ ...c, [mk]: false }));
+                const el = document.getElementById(`month-${mk}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              href={`#month-${mk}`}
+              style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration: 'none', color: '#0f172a', flexShrink: 0 }}
+            >
+              {MONTH_FULL[i].slice(0,3)}
+            </a>
+          ))}
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+            {firebaseStatus === 'connected'  && (<span style={{ color: '#059669' }}>● Firebase: Connected</span>)}
+            {firebaseStatus === 'connecting' && (<span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>)}
+            {firebaseStatus === 'error'      && (<span style={{ color: '#dc2626' }}>● Firebase: Error</span>)}
+          </span>
+          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Collapse all</button>
+          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Expand all</button>
+          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #059669', background: '#10b981', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My CSV</button>
+          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My Word</button>
+        </div>
+      </div>
 
       {/* Header + instructions */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
-        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI &amp; COA)</h1>
         <ol style={{ margin: '8px 0 12px', paddingLeft: 20, color: '#334155', fontSize: 14, lineHeight: 1.45, listStyle: 'decimal' }}>
           <li style={{ marginBottom: 4 }}>Select your name below. You will see the number of weekends you wanted.</li>
           <li style={{ marginBottom: 4 }}>Expand months as needed to choose as many <strong>Most</strong> and <strong>Least</strong> preferred weekends as you need to. For each, select <b>service</b> and <b>choice #</b>.</li>
@@ -936,26 +1280,53 @@ export default function App() {
           Status: {status} • Most choices: {counts.mostCount} • Least choices: {counts.leastCount} {submitted ? '• (Locked after submission)' : ''}
         </div>
         <AttendingIdentity profile={profile} saveProfile={saveProfile} />
-        {balanceHint && (
-          <div style={{
-            fontSize: 12,
-            color: balanceHint.type === 'ok' ? '#065f46' : '#7c2d12',
-            background: balanceHint.type === 'ok' ? '#ecfdf5' : '#ffedd5',
-            border: '1px solid #e2e8f0',
-            padding: '8px 10px', borderRadius: 10, marginTop: 6
-          }}>
-            {balanceHint.msg}
-          </div>
-        )}
-        {submitted && (
-          <div style={{ marginTop: 10, fontSize: 12, color: '#991b1b', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 10, padding: '8px 10px' }}>
-            Your submission is locked. The calendar below is read-only.
-          </div>
-        )}
       </div>
 
-      {/* Optional Reorder Mode (drag) */}
-      <ReorderPanel prefs={prefs} setPrefs={setPrefs} submitted={submitted} />
+      {/* Command Palette */}
+      <CommandPalette
+        months={months}
+        availabilityByWeekend={availabilityByWeekend}
+        prefs={prefs}
+        setMost={setMost}
+        setLeast={setLeast}
+        submitted={submitted}
+      />
+
+      {/* Optional fast UIs */}
+      { (UI_MODE !== 'legacy') && (
+        <>
+          {SHOW_QUICKADD && (
+            <QuickAdd
+              months={months}
+              availabilityByWeekend={availabilityByWeekend}
+              prefs={prefs}
+              setMost={setMost}
+              setLeast={setLeast}
+              submitted={submitted}
+            />
+          )}
+          {SHOW_RANKBOARD && (
+            <RankBoard
+              months={months}
+              availabilityByWeekend={availabilityByWeekend}
+              prefs={prefs}
+              setMost={setMost}
+              setLeast={setLeast}
+              submitted={submitted}
+            />
+          )}
+          {SHOW_DRAG && (
+            <DragBuckets
+              months={months}
+              availabilityByWeekend={availabilityByWeekend}
+              prefs={prefs}
+              setMost={setMost}
+              setLeast={setLeast}
+              submitted={submitted}
+            />
+          )}
+        </>
+      )}
 
       {/* Calendar */}
       <CalendarGrid
@@ -979,31 +1350,21 @@ export default function App() {
         <span className="text-sm text-gray-600">{submitted ? 'Locked. Downloads reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}</span>
       </div>
 
-      {/* Admin-only heatmap + CSV controls */}
+      {/* Admin export */}
       {isAdmin && (
-        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px' }}>
-          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom: 8 }}>
-            <button
-              onClick={() => {
-                if (!adminLoaded) return;
-                const fn = `admin_all_prefs_${new Date().toISOString().slice(0,10)}.csv`;
-                downloadCSV(fn, adminRows);
-              }}
-              style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #334155", background:'#1f2937', color:'#fff', fontSize:12 }}
-              disabled={!adminLoaded}
-              title="Exports rows from all users (Most/Least)"
-            >
-              Admin CSV (All Users)
-            </button>
-            {!adminLoaded && <span style={{ fontSize: 12, color:'#64748b' }}>Loading admin data…</span>}
+        <div style={{ maxWidth:1120, margin:'0 auto', padding:'0 12px 24px' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+            <strong>Admin:</strong>
+            <button onClick={loadAdmin} style={{ padding:'6px 10px', borderRadius:10, border:'1px solid #e5e7eb', background:'#fff' }}>Refresh</button>
+            <button onClick={() => downloadCSV('admin_preferences.csv', adminRows)} style={{ padding:'6px 10px', borderRadius:10, border:'1px solid #4b5563', background:'#111827', color:'#fff' }}>Download admin.csv</button>
+            <span style={{ fontSize:12, color:'#64748b' }}>{adminLoaded ? `${adminRows.length} rows` : 'Not loaded'}</span>
           </div>
-          {adminLoaded && <AdminHeatmap adminRows={adminRows} />}
         </div>
       )}
 
       {/* Build label */}
       <div style={{maxWidth:1120, margin:"0 auto", padding:"0 12px 24px", textAlign:"right", color:"#64748b", fontSize:12}}>
-        Build: {__APP_VERSION__}
+        Build: {__APP_VERSION__} • UI: {UI_MODE}
       </div>
     </div>
   );
