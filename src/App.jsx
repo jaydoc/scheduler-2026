@@ -18,6 +18,9 @@ import {
   query
 } from 'firebase/firestore';
 
+// at top
+import DragBuckets from "./DragBuckets.jsx";
+
 /* Build tag */
 const __APP_VERSION__ = "v13.0 — unified UI + palette + live sidebar + badge";
 
@@ -553,117 +556,176 @@ function RankBoard({ monthsFlat, prefs, setMost, setLeast, disabled }) {
 }
 
 /* DragBuckets (simple HTML5 drag between Most/Least “buckets”) */
-function DragBuckets({ monthsFlat, prefs, setMost, setLeast, disabled }) {
-  const MAXN = allWeekendIds.length;
-  const [dragId, setDragId] = useState(null);
+/* DragBuckets (fixed: empty Most/Least initially; source is compact grid; enforce availability) */
+function DragBuckets({ monthsFlat, prefs, setMost, setLeast, disabled, requireName }) {
+  const [dragPayload, setDragPayload] = useState(null); // { id, service }
 
-  const onDragStart = (id) => setDragId(id);
-  const onDropTo = (kind) => {
-    if (!dragId) return;
-    const avail = availabilityByWeekend[dragId] || [];
-    // default service if only one available
-    const defaultSvc = avail.length === 1 ? avail[0] : SERVICES.NONE;
-    if (kind === 'MOST') setMost(dragId, { ...(prefs[dragId]||{}), mostService: defaultSvc, mostChoice: (prefs[dragId]?.mostChoice || 0) });
-    if (kind === 'LEAST') setLeast(dragId, { ...(prefs[dragId]||{}), leastService: defaultSvc, leastChoice: (prefs[dragId]?.leastChoice || 0) });
-    setDragId(null);
+  // Build a compact "library" of draggable chips: one per AVAILABLE service per weekend
+  const libraryItems = useMemo(() => {
+    return monthsFlat.flatMap(({ id, satISO, label }) => {
+      const avail = availabilityByWeekend[id] || [];
+      return avail.map(svc => ({
+        key: `${id}:${svc}`,
+        id,
+        service: svc,
+        label: `${label} — ${svc}`,
+      }));
+    });
+  }, [monthsFlat]);
+
+  // Existing choices from prefs (only items with a positive choice number)
+  const mostChosen = useMemo(() => {
+    const arr = [];
+    for (const [id, p] of Object.entries(prefs)) {
+      if (p?.mostService && p.mostService !== SERVICES.NONE && (p.mostChoice || 0) > 0) {
+        arr.push({ id, service: p.mostService, choice: p.mostChoice });
+      }
+    }
+    arr.sort((a,b) => (a.choice - b.choice) || (allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id)));
+    return arr;
+  }, [prefs]);
+
+  const leastChosen = useMemo(() => {
+    const arr = [];
+    for (const [id, p] of Object.entries(prefs)) {
+      if (p?.leastService && p.leastService !== SERVICES.NONE && (p.leastChoice || 0) > 0) {
+        arr.push({ id, service: p.leastService, choice: p.leastChoice });
+      }
+    }
+    arr.sort((a,b) => (a.choice - b.choice) || (allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id)));
+    return arr;
+  }, [prefs]);
+
+  // Next choice number when dropping into a bucket
+  const nextChoice = (list) => (list.reduce((m,x)=>Math.max(m, x.choice||0), 0) + 1);
+
+  // DnD handlers
+  const onDragStart = (payload) => (e) => {
+    if (disabled || !requireName) { e.preventDefault(); return; }
+    setDragPayload(payload);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+  };
+  const onDragOver = (e) => { if (disabled || !requireName) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+  const onDrop = (bucket) => (e) => {
+    if (disabled || !requireName) return;
+    e.preventDefault();
+    let pl = dragPayload;
+    try { pl = JSON.parse(e.dataTransfer.getData("text/plain")); } catch {}
+    if (!pl) return;
+    const avail = availabilityByWeekend[pl.id] || [];
+    if (!avail.includes(pl.service)) return; // enforce availability hard
+
+    if (bucket === "MOST") {
+      // remove any least assignment for same id
+      setLeast(pl.id, { ...((prefs[pl.id]||{})), leastService: SERVICES.NONE, leastChoice: 0 });
+      setMost(pl.id,  { ...((prefs[pl.id]||{})), mostService: pl.service,  mostChoice:  nextChoice(mostChosen) });
+    } else {
+      setMost(pl.id,  { ...((prefs[pl.id]||{})), mostService: SERVICES.NONE, mostChoice: 0 });
+      setLeast(pl.id, { ...((prefs[pl.id]||{})), leastService: pl.service,  leastChoice: nextChoice(leastChosen) });
+    }
+    setDragPayload(null);
   };
 
-  const pool = monthsFlat.filter(w => {
-    const p = prefs[w.date] || {};
-    const inMost = p.mostService !== SERVICES.NONE && p.mostChoice > 0;
-    const inLeast = p.leastService !== SERVICES.NONE && p.leastChoice > 0;
-    return !(inMost || inLeast);
-  });
+  const removeFrom = (bucket, id) => {
+    if (bucket === "MOST") setMost(id,  { ...((prefs[id]||{})), mostService: SERVICES.NONE, mostChoice: 0 });
+    else                   setLeast(id, { ...((prefs[id]||{})), leastService: SERVICES.NONE, leastChoice: 0 });
+  };
+
+  const shell = { border:'1px solid #e5e7eb', borderRadius:14, background:'#fff', boxShadow:'0 1px 2px rgba(0,0,0,.04)' };
+  const title = { fontWeight:900, fontSize:14, padding:'8px 10px', borderBottom:'1px solid #e5e7eb', background:'#f8fafc' };
+  const pad   = { padding:10 };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-      <div style={{ border: '1px dashed #94a3b8', borderRadius: 12, padding: 12, background: '#f8fafc' }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>Pool (drag to assign)</div>
-        <div style={{ display: 'grid', gap: 8, opacity: disabled ? 0.6 : 1 }}>
-          {pool.map(w => (
+    <div style={{ maxWidth: 1120, margin:'12px auto', padding:'0 12px' }}>
+      <div style={{ display:'grid', gap:16, gridTemplateColumns:'1fr 1fr 1fr' }}>
+        {/* Library (compact grid of chips) */}
+        <div style={shell}>
+          <div style={title}>Available (drag a chip)</div>
+          <div style={{ ...pad }}>
             <div
-              key={w.date}
-              draggable={!disabled}
-              onDragStart={() => onDragStart(w.date)}
-              style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 8, background: '#fff', cursor: disabled ? 'not-allowed' : 'grab' }}
-              title="Drag to MOST or LEAST"
+              style={{
+                display:'grid',
+                gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))',
+                gap:8,
+                alignItems:'start'
+              }}
             >
-              {w.d} <span style={{ color:'#64748b', fontSize:12, marginLeft:8 }}>({(availabilityByWeekend[w.date]||[]).join(' / ') || 'Full'})</span>
+              {libraryItems.map(item => (
+                <div
+                  key={item.key}
+                  draggable={!disabled && requireName}
+                  onDragStart={onDragStart({ id:item.id, service:item.service })}
+                  title={requireName ? "Drag to MOST or LEAST" : "Select your name first"}
+                  style={{
+                    padding:'6px 10px',
+                    borderRadius:999,
+                    border:'1px solid #e5e7eb',
+                    background:'#ffffff',
+                    fontSize:12,
+                    cursor: (disabled || !requireName) ? 'not-allowed' : 'grab',
+                    userSelect:'none',
+                    whiteSpace:'nowrap',
+                    overflow:'hidden',
+                    textOverflow:'ellipsis'
+                  }}
+                >
+                  {item.label}
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
-      </div>
 
-      <div
-        onDragOver={(e)=>e.preventDefault()}
-        onDrop={()=>onDropTo('MOST')}
-        style={{ border: '2px dashed #10b981', borderRadius: 12, padding: 12, background: '#ecfdf5' }}
-      >
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>MOST (service + choice)</div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {monthsFlat.map(w => {
-            const p = prefs[w.date] || {};
-            if (!(p.mostService && p.mostService !== SERVICES.NONE)) return null;
-            const avail = availabilityByWeekend[w.date] || [];
-            return (
-              <div key={`dm-${w.date}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 160, fontSize: 13 }}>{w.d}</div>
-                <RadioServiceLimited
-                  available={avail}
-                  disabled={disabled}
-                  value={p.mostService}
-                  onChange={(svc) => setMost(w.date, { ...p, mostService: svc })}
-                  name={`d-most-${w.date}`}
-                />
-                <ChoiceSelect
-                  disabled={disabled || p.mostService === SERVICES.NONE}
-                  value={p.mostChoice || 0}
-                  onChange={(choice) => setMost(w.date, { ...p, mostChoice: choice })}
-                  placeholder="Choice #"
-                  maxN={MAXN}
-                />
+        {/* MOST */}
+        <div style={shell} onDragOver={onDragOver} onDrop={onDrop("MOST")}>
+          <div style={title}>Most (drop to add)</div>
+          <div style={{ ...pad, minHeight: 120, display:'flex', flexDirection:'column', gap:8 }}>
+            {mostChosen.length === 0 ? (
+              <div style={{ fontSize:12, color:'#64748b' }}>— empty —</div>
+            ) : mostChosen.map(m => (
+              <div key={`M-${m.id}`} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ padding:'4px 8px', borderRadius:8, background:'#d1fae5', border:'1px solid #10b98133', fontSize:12 }}>
+                  #{m.choice}
+                </span>
+                <span style={{ fontSize:13 }}>
+                  {MONTH_FULL[new Date(m.id).getMonth()]} {new Date(m.id).getDate()} — {m.service}
+                </span>
+                <button onClick={()=>removeFrom("MOST", m.id)} style={{ marginLeft:'auto', fontSize:12, border:'1px solid #e5e7eb', borderRadius:8, padding:'2px 6px' }}>Remove</button>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div
-        onDragOver={(e)=>e.preventDefault()}
-        onDrop={()=>onDropTo('LEAST')}
-        style={{ border: '2px dashed #ef4444', borderRadius: 12, padding: 12, background: '#fef2f2' }}
-      >
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>LEAST (service + choice)</div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {monthsFlat.map(w => {
-            const p = prefs[w.date] || {};
-            if (!(p.leastService && p.leastService !== SERVICES.NONE)) return null;
-            const avail = availabilityByWeekend[w.date] || [];
-            return (
-              <div key={`dl-${w.date}`} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 160, fontSize: 13 }}>{w.d}</div>
-                <RadioServiceLimited
-                  available={avail}
-                  disabled={disabled}
-                  value={p.leastService}
-                  onChange={(svc) => setLeast(w.date, { ...p, leastService: svc })}
-                  name={`d-least-${w.date}`}
-                />
-                <ChoiceSelect
-                  disabled={disabled || p.leastService === SERVICES.NONE}
-                  value={p.leastChoice || 0}
-                  onChange={(choice) => setLeast(w.date, { ...p, leastChoice: choice })}
-                  placeholder="Choice #"
-                  maxN={MAXN}
-                />
+        {/* LEAST */}
+        <div style={shell} onDragOver={onDragOver} onDrop={onDrop("LEAST")}>
+          <div style={title}>Least (drop to add)</div>
+          <div style={{ ...pad, minHeight: 120, display:'flex', flexDirection:'column', gap:8 }}>
+            {leastChosen.length === 0 ? (
+              <div style={{ fontSize:12, color:'#64748b' }}>— empty —</div>
+            ) : leastChosen.map(m => (
+              <div key={`L-${m.id}`} style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ padding:'4px 8px', borderRadius:8, background:'#fee2e2', border:'1px solid #ef444433', fontSize:12 }}>
+                  #{m.choice}
+                </span>
+                <span style={{ fontSize:13 }}>
+                  {MONTH_FULL[new Date(m.id).getMonth()]} {new Date(m.id).getDate()} — {m.service}
+                </span>
+                <button onClick={()=>removeFrom("LEAST", m.id)} style={{ marginLeft:'auto', fontSize:12, border:'1px solid #e5e7eb', borderRadius:8, padding:'2px 6px' }}>Remove</button>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       </div>
+      {!requireName && (
+        <div style={{ marginTop:8, fontSize:12, color:'#991b1b', background:'#fee2e2', border:'1px solid #fecaca', padding:'6px 8px', borderRadius:8 }}>
+          Select your name above to enable drag & drop.
+        </div>
+      )}
     </div>
   );
 }
+
 
 /* Attending picker + limits */
 function AttendingIdentity({ profile, saveProfile }) {
