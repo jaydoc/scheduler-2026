@@ -25,7 +25,7 @@ const firebaseConfig = (() => {
   return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v7";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -34,7 +34,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 /* ----------------------------------------------------------------------
-   Attending roster (edit names/emails here)
+   Attending roster (YOUR LIST)
    ---------------------------------------------------------------------- */
 const ATTENDINGS = [
   { name: "Ambal",   email: "nambalav@uab.edu" },
@@ -52,19 +52,36 @@ const ATTENDINGS = [
   { name: "Travers", email: "cptravers@uabmc.edu" },
   { name: "Willis",  email: "kentwillis@uabmc.edu" },
   { name: "Winter",  email: "lwinter@uabmc.edu" },
-  { name: "Salas",  email: "asalas@uabmc.edu" },
-  { name: "Lal",  email: "clal@uabmc.edu" },
+  { name: "Salas",   email: "asalas@uabmc.edu" },
+  { name: "Lal",     email: "clal@uabmc.edu" },
   { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* ----------------------------------------------------------------------
-   Paths and refs
-   ---------------------------------------------------------------------- */
-const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
-const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+/* Per-attending targets (keys match ATTENDINGS.name exactly) */
+const ATTENDING_LIMITS = {
+  "Ambal":     { requested: 6,  claimed: 4, left: 2 },
+  "Schuyler":  { requested: 3,  claimed: 2, left: 1 },
+  "Mackay":    { requested: 5,  claimed: 1, left: 4 },
+  "Kane":      { requested: 1,  claimed: 1, left: 0 },
+  "Salas":     { requested: 3,  claimed: 0, left: 3 },
+  "Sims":      { requested: 8,  claimed: 4, left: 4 },
+  "Travers":   { requested: 7,  claimed: 4, left: 3 },
+  "Kandasamy": { requested: 10, claimed: 6, left: 4 },
+  "Willis":    { requested: 9,  claimed: 4, left: 5 },
+  "Bhatia":    { requested: 6,  claimed: 5, left: 1 },
+  "Winter":    { requested: 5,  claimed: 3, left: 2 },
+  "Boone":     { requested: 9,  claimed: 6, left: 3 },
+  "Arora":     { requested: 9,  claimed: 7, left: 2 },
+  "Jain":      { requested: 9,  claimed: 1, left: 8 },
+  "Lal":       { requested: 0,  claimed: 0, left: 0 },
+  "Shukla":    { requested: 9,  claimed: 1, left: 8 },
+  "Vivian":    { requested: 0,  claimed: 0, left: 2 },  // as provided
+  "Carlo":     { requested: 5,  claimed: 5, left: 0 },
+  // "TOTALS":  { requested: 104, claimed: 54, left: 50 } // not shown per user
+};
 
 /* ----------------------------------------------------------------------
-   Calendar data (Sat-based weekends; holiday spans noted)
+   Calendar data (Saturdays in 2026; holiday spans noted)
    ---------------------------------------------------------------------- */
 const months = {
   '01': [
@@ -181,11 +198,11 @@ const MONTH_MIN_HEIGHT = 520;
 function RadioService({ value, onChange, disabled, name }) {
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
         <input type="radio" disabled={disabled} checked={value === SERVICES.RNI} onChange={() => onChange(SERVICES.RNI)} name={name} />
         RNI
       </label>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
         <input type="radio" disabled={disabled} checked={value === SERVICES.COA} onChange={() => onChange(SERVICES.COA)} name={name} />
         COA
       </label>
@@ -198,7 +215,7 @@ function RankSelect({ value, onChange, disabled, placeholder }) {
       disabled={disabled}
       value={String(value || 0)}
       onChange={e => onChange(parseInt(e.target.value, 10))}
-      style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 10 }}
+      style={{ padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
     >
       <option value="0">{placeholder}</option>
       {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
@@ -215,6 +232,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
       ref={cardRef}
       id={`month-${mk}`}
       style={{
+        scrollMarginTop: 96,
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -231,7 +249,8 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
           color: color.fg,
           borderBottom: `2px solid ${color.border}`,
           fontWeight: 800,
-          padding: '10px 12px',
+          fontSize: 16,
+          padding: '12px 14px',
           textAlign: 'center',
           display: 'flex',
           alignItems: 'center',
@@ -259,19 +278,21 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                 borderRadius: 12,
                 border: '1px solid #e5e7eb',
                 background: fullyAssigned ? '#f9fafb' : '#fff',
-                opacity: fullyAssigned ? 0.75 : 1
+                opacity: fullyAssigned ? 0.8 : 1
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{w.day}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{w.day}</div>
                   {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
                 </div>
 
-                <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
-                  <span style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#374151', borderRadius: 6, padding: '2px 6px', marginRight: 8 }}>
-                    RNI: {rniOpen ? 'OPEN' : w.rni}
+                <div style={{ fontSize: 13, color: '#334155', marginBottom: 8, lineHeight: 1.25 }}>
+                  <span style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#111827',
+                                 borderRadius: 6, padding: '3px 8px', marginRight: 8 }}>
+                    RNI: {rniOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.rni}</strong>}
                   </span>
-                  <span style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#374151', borderRadius: 6, padding: '2px 6px' }}>
-                    COA: {coaOpen ? 'OPEN' : w.coa}
+                  <span style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#111827',
+                                 borderRadius: 6, padding: '3px 8px' }}>
+                    COA: {coaOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.coa}</strong>}
                   </span>
                 </div>
 
@@ -279,7 +300,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                   <div style={{ display: 'grid', gap: 10, opacity: locked ? 0.6 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
                     {/* MOST */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Most (service + rank required)</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Most (service + rank)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                         <RadioService
                           disabled={locked}
@@ -302,7 +323,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 
                     {/* LEAST */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Least (rank required; service optional)</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least (rank; service optional)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                         <RadioService
                           disabled={locked}
@@ -335,7 +356,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 }
 
 /* ----------------------------------------------------------------------
-   CSV/Word helpers (user preview + final) and Admin CSV
+   CSV/Word helpers + Admin CSV
    ---------------------------------------------------------------------- */
 function toCSV(rows) {
   const headers = Object.keys(rows[0] || { });
@@ -385,7 +406,7 @@ function docHtml(name, email, top10, bottom10) {
 }
 
 /* ----------------------------------------------------------------------
-   Main App
+   App
    ---------------------------------------------------------------------- */
 export default function App() {
   const [uid, setUid] = useState(null);
@@ -397,7 +418,9 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(() =>
     Object.fromEntries(MONTH_KEYS.map(mk => [mk, true]))
   );
-  const isAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
+  const params = new URLSearchParams(window.location.search);
+  const isAdmin = params.get('admin') === '1';
+
   const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
 
   // auth
@@ -459,21 +482,20 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
   }, []);
 
-  // validation
+  // counts only (no min/max restriction)
   const counts = useMemo(() => {
-    const mostRanks = [];
-    const leastRanks = [];
+    let mostCount = 0, leastCount = 0;
     for (const p of Object.values(prefs)) {
-      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) mostRanks.push(p.mostRank);
-      if (p.leastRank > 0) leastRanks.push(p.leastRank);
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) mostCount++;
+      if (p.leastRank > 0) leastCount++;
     }
-    const dedup = arr => arr.length === new Set(arr).size;
-    const validMost = mostRanks.length === 10 && dedup(mostRanks);
-    const validLeast = leastRanks.length === 10 && dedup(leastRanks);
-    return { validMost, validLeast, isValid: validMost && validLeast, mostCount: mostRanks.length, leastCount: leastRanks.length };
+    return { mostCount, leastCount };
   }, [prefs]);
 
   // save profile on change
+  const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
+  const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+
   const saveProfile = async (next) => {
     setProfile(next);
     if (!uid) return;
@@ -496,8 +518,8 @@ export default function App() {
 
   // submit and lock
   const handleSubmit = async () => {
-    if (!uid || !counts.isValid || !profile.name) {
-      alert('Select your name, complete 10 Most + 10 Least with unique ranks.');
+    if (!uid || !profile.name) {
+      alert('Select your name first.');
       return;
     }
     const { top10, bottom10 } = assembleTopBottom();
@@ -515,7 +537,7 @@ export default function App() {
     alert('Preferences submitted. Downloads now reflect your final locked choices.');
   };
 
-  // user downloads (always available; labeled based on submitted state)
+  // user downloads (always available; labeled by submitted state)
   const downloadMyCSV = () => {
     const { top10, bottom10 } = assembleTopBottom();
     const rows = [
@@ -566,8 +588,8 @@ export default function App() {
   const locked = submitted;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Sticky Jump-to-Month + Admin/Download bar */}
+    <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
+      {/* Sticky Jump + Controls */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
         background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)',
@@ -623,37 +645,80 @@ export default function App() {
       {/* Header */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
-        <p className="text-sm text-gray-600 mb-2">
-          1) Select your name below. 2) Expand months to choose 10 <b>Most</b> (service + rank) and 10 <b>Least</b> (rank; service optional).
-          3) Submit to lock. You can download a preview anytime.
-        </p>
+
+        {/* Numbered instructions */}
+        <ol style={{ margin: '8px 0 12px', paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.45 }}>
+          <li style={{ marginBottom: 4 }}><strong>1)</strong> Select your name below. You will see the number of weekends you wanted.</li>
+          <li style={{ marginBottom: 4 }}><strong>2)</strong> Expand months as needed to choose as many <strong>Most</strong> (service + rank) and <strong>Least</strong> (rank; service optional) preferred weekends as you need to</li>
+          <li style={{ marginBottom: 4 }}><strong>3)</strong> You can download a preview anytime.</li>
+          <li style={{ marginBottom: 4 }}><strong>4)</strong> Submit to lock your preferences once you are done.</li>
+        </ol>
+
+        <div style={{ fontSize: 13, color: '#0f5132', background: '#d1e7dd', border: '1px solid #badbcc',
+                      padding: '10px 12px', borderRadius: 10, marginBottom: 10 }}>
+          Aim for a balanced spread of <b>COA</b> and <b>RNI</b> on your “Most” list when possible.
+          Selecting more weekends increases the chance you receive more of your preferred weekends overall.
+        </div>
+
+        {/* Status line */}
         <div className="mb-3 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
-          Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10 {locked ? '• (Locked after submission)' : ''}
+          Status: {status} • Most selected: {counts.mostCount} • Least selected: {counts.leastCount} {locked ? '• (Locked after submission)' : ''}
         </div>
 
         {/* Attending identity */}
-        <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:12 }}>
-          <label style={{ fontSize:14, fontWeight:600 }}>Your name:</label>
+        <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
+          <label style={{ fontSize:14, fontWeight:700 }}>Your name:</label>
           <select
             disabled={locked}
             value={profile.name}
             onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
-            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220 }}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220, fontSize:14 }}
           >
             <option value="">— Select —</option>
             {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
           </select>
 
-          <label style={{ fontSize:14, fontWeight:600, marginLeft:8 }}>Email (optional):</label>
+          <label style={{ fontSize:14, fontWeight:700, marginLeft:8 }}>Email (optional):</label>
           <input
             disabled={locked}
             type="email"
             value={profile.email}
             placeholder="you@uab.edu"
             onChange={e => saveProfile({ ...profile, email: e.target.value })}
-            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260 }}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260, fontSize:14 }}
           />
         </div>
+
+        {/* Per-attending targets panel */}
+        {profile.name && (
+          <div style={{ marginTop: 8, marginBottom: 12 }}>
+            {(() => {
+              const m = ATTENDING_LIMITS[profile.name];
+              return m ? (
+                <div style={{
+                  display: 'flex', gap: 12, flexWrap: 'wrap',
+                  background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px'
+                }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{profile.name}</div>
+                  <div style={{ fontSize: 13, color: '#334155' }}>
+                    <b>Total weekends requested:</b> {m.requested}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#334155' }}>
+                    <b>Assignments already claimed:</b> {m.claimed}
+                  </div>
+                  <div style={{ fontSize: 13, color: '#334155' }}>
+                    <b>Assignments left to be picked:</b> {m.left}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa',
+                              borderRadius: 10, padding: '8px 10px' }}>
+                  Target numbers for “{profile.name}” are not set yet.
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* Centered 2x6 grid */}
@@ -683,12 +748,12 @@ export default function App() {
         ))}
       </div>
 
-      {/* Submit and note */}
+      {/* Submit */}
       {!isAdmin && (
         <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
           <button
-            className={`${counts.isValid && profile.name && !locked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
-            disabled={!counts.isValid || !profile.name || locked}
+            className={`${profile.name && !locked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
+            disabled={!profile.name || locked}
             onClick={handleSubmit}
           >
             {locked ? 'Submitted (Locked)' : 'Submit Final Preferences'}
