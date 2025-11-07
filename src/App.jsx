@@ -25,7 +25,7 @@ const firebaseConfig = (() => {
   return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v7";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v8";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -77,7 +77,6 @@ const ATTENDING_LIMITS = {
   "Shukla":    { requested: 9,  claimed: 1, left: 8 },
   "Vivian":    { requested: 0,  claimed: 0, left: 2 },  // as provided
   "Carlo":     { requested: 5,  claimed: 5, left: 0 },
-  // "TOTALS":  { requested: 104, claimed: 54, left: 50 } // not shown per user
 };
 
 /* ----------------------------------------------------------------------
@@ -441,6 +440,10 @@ export default function App() {
     })();
   }, []);
 
+  // Firestore refs (scoped after auth to avoid hoist confusion)
+  const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
+  const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+
   // load profile + prefs
   useEffect(() => {
     if (!uid) return;
@@ -492,10 +495,7 @@ export default function App() {
     return { mostCount, leastCount };
   }, [prefs]);
 
-  // save profile on change
-  const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
-  const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
-
+  // save profile
   const saveProfile = async (next) => {
     setProfile(next);
     if (!uid) return;
@@ -537,7 +537,7 @@ export default function App() {
     alert('Preferences submitted. Downloads now reflect your final locked choices.');
   };
 
-  // user downloads (always available; labeled by submitted state)
+  // user downloads
   const downloadMyCSV = () => {
     const { top10, bottom10 } = assembleTopBottom();
     const rows = [
@@ -556,8 +556,18 @@ export default function App() {
     downloadBlob(fn, 'application/msword', html);
   };
 
-  // UI helpers
-  const jumpTo = mk => monthRefs.current[mk]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // Jump helpers: expand target month, then scroll
+  const jumpTo = (mk) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [mk]: false };
+      // scroll after the DOM reflects the expanded month
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`month-${mk}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return next;
+    });
+  };
   const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
 
   /* ---------------- Admin CSV (query ?admin=1) ---------------- */
@@ -646,12 +656,12 @@ export default function App() {
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
 
-        {/* Numbered instructions */}
-        <ol style={{ margin: '8px 0 12px', paddingLeft: 18, color: '#334155', fontSize: 14, lineHeight: 1.45 }}>
-          <li style={{ marginBottom: 4 }}><strong>1)</strong> Select your name below. You will see the number of weekends you wanted.</li>
-          <li style={{ marginBottom: 4 }}><strong>2)</strong> Expand months as needed to choose as many <strong>Most</strong> (service + rank) and <strong>Least</strong> (rank; service optional) preferred weekends as you need to</li>
-          <li style={{ marginBottom: 4 }}><strong>3)</strong> You can download a preview anytime.</li>
-          <li style={{ marginBottom: 4 }}><strong>4)</strong> Submit to lock your preferences once you are done.</li>
+        {/* Numbered instructions (no duplicate "1)") */}
+        <ol style={{ margin: '8px 0 12px', paddingLeft: 20, color: '#334155', fontSize: 14, lineHeight: 1.45, listStyle: 'decimal' }}>
+          <li style={{ marginBottom: 4 }}>Select your name below. You will see the number of weekends you wanted.</li>
+          <li style={{ marginBottom: 4 }}>Expand months as needed to choose as many <strong>Most</strong> (service + rank) and <strong>Least</strong> (rank; service optional) preferred weekends as you need to.</li>
+          <li style={{ marginBottom: 4 }}>You can download a preview anytime.</li>
+          <li style={{ marginBottom: 4 }}>Submit to lock your preferences once you are done.</li>
         </ol>
 
         <div style={{ fontSize: 13, color: '#0f5132', background: '#d1e7dd', border: '1px solid #badbcc',
@@ -662,14 +672,14 @@ export default function App() {
 
         {/* Status line */}
         <div className="mb-3 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
-          Status: {status} • Most selected: {counts.mostCount} • Least selected: {counts.leastCount} {locked ? '• (Locked after submission)' : ''}
+          Status: {status} • Most selected: {counts.mostCount} • Least selected: {counts.leastCount} {submitted ? '• (Locked after submission)' : ''}
         </div>
 
         {/* Attending identity */}
         <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
           <label style={{ fontSize:14, fontWeight:700 }}>Your name:</label>
           <select
-            disabled={locked}
+            disabled={submitted}
             value={profile.name}
             onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
             style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220, fontSize:14 }}
@@ -680,7 +690,7 @@ export default function App() {
 
           <label style={{ fontSize:14, fontWeight:700, marginLeft:8 }}>Email (optional):</label>
           <input
-            disabled={locked}
+            disabled={submitted}
             type="email"
             value={profile.email}
             placeholder="you@uab.edu"
@@ -743,7 +753,7 @@ export default function App() {
             collapsed={collapsed[mk]}
             onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
             cardRef={monthRefs.current[mk]}
-            locked={locked}
+            locked={submitted}
           />
         ))}
       </div>
@@ -752,14 +762,14 @@ export default function App() {
       {!isAdmin && (
         <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
           <button
-            className={`${profile.name && !locked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
-            disabled={!profile.name || locked}
+            className={`${profile.name && !submitted ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
+            disabled={!profile.name || submitted}
             onClick={handleSubmit}
           >
-            {locked ? 'Submitted (Locked)' : 'Submit Final Preferences'}
+            {submitted ? 'Submitted (Locked)' : 'Submit Final Preferences'}
           </button>
           <span className="text-sm text-gray-600">
-            {locked ? 'Locked. Downloads above reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}
+            {submitted ? 'Locked. Downloads above reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}
           </span>
         </div>
       )}
