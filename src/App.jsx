@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v12.4 - force clean deploy";
+const __APP_VERSION__ = "v13.0 - polish + summary + admin exports + draft scheduler";
 console.log("Scheduler build:", __APP_VERSION__);
 
 /* Firebase config: prefer injected, else global fallback, else local */
@@ -27,7 +27,7 @@ const firebaseConfig = (() => {
   return LOCAL_FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12.3";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v13.0";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -162,7 +162,7 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Availability */
+/* Availability map */
 const availabilityByWeekend = (() => {
   const m = {};
   for (const arr of Object.values(months)) {
@@ -201,6 +201,10 @@ const MONTH_COLORS = [
   { bg: '#86efac', fg: '#064e3b', border: '#22c55e' },
 ];
 const MONTH_MIN_HEIGHT = 520;
+
+/* Visual constants */
+const BASE_FONT_SIZE = 16;
+const ASSIGNED_NAME_STYLE = { fontWeight: 800, color: '#0f172a', fontSize: 16 };
 
 /* Choice select */
 function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
@@ -302,10 +306,10 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 
                 <div style={{ fontSize: 13, color: '#334155', marginBottom: 8, lineHeight: 1.25 }}>
                   <span style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#111827', borderRadius: 6, padding: '3px 8px', marginRight: 8 }}>
-                    RNI: {rniOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.rni}</strong>}
+                    RNI: {rniOpen ? 'OPEN' : <span style={ASSIGNED_NAME_STYLE}>{w.rni}</span>}
                   </span>
                   <span style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#111827', borderRadius: 6, padding: '3px 8px' }}>
-                    COA: {coaOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.coa}</strong>}
+                    COA: {coaOpen ? 'OPEN' : <span style={ASSIGNED_NAME_STYLE}>{w.coa}</span>}
                   </span>
                 </div>
 
@@ -599,7 +603,7 @@ export default function App() {
     })();
   }, [uid]);
 
-  /* one-time auto-fill */
+  /* one-time auto-fill for single-service weekends */
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
   useEffect(() => {
     if (autoFilledOnce) return;
@@ -655,6 +659,22 @@ export default function App() {
     return { top10, bottom10 };
   }, [prefs]);
 
+  /* Summary + balance */
+  const computeSummary = useCallback(() => {
+    let mostRNI = 0, mostCOA = 0, leastRNI = 0, leastCOA = 0, mostTotal = 0, leastTotal = 0;
+    for (const p of Object.values(prefs)) {
+      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) {
+        mostTotal++; if (p.mostService === SERVICES.RNI) mostRNI++; else mostCOA++;
+      }
+      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) {
+        leastTotal++; if (p.leastService === SERVICES.RNI) leastRNI++; else leastCOA++;
+      }
+    }
+    const mostBalance = mostTotal ? Math.round((mostRNI / mostTotal) * 100) : 0;
+    const leastBalance = leastTotal ? Math.round((leastRNI / leastTotal) * 100) : 0;
+    return { mostRNI, mostCOA, leastRNI, leastCOA, mostTotal, leastTotal, mostBalance, leastBalance };
+  }, [prefs]);
+
   const handleSubmit = async () => {
     if (!uid || !profile.name) { alert('Select your name first.'); return; }
     const badLeast = Object.values(prefs).some(p => p.leastChoice > 0 && p.leastService === SERVICES.NONE);
@@ -694,19 +714,7 @@ export default function App() {
     downloadBlob(fn, 'application/msword', html);
   };
 
-  const jumpTo = (mk) => {
-    setCollapsed(prev => {
-      const next = { ...prev, [mk]: false };
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`month-${mk}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return next;
-    });
-  };
-  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
-
-  /* Admin CSV (single definition of isAdmin above) */
+  /* Admin CSV */
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoaded, setAdminLoaded] = useState(false);
   const loadAdmin = async () => {
@@ -731,48 +739,145 @@ export default function App() {
     if (isAdmin && uid && !adminLoaded) { loadAdmin().catch(console.error); }
   }, [isAdmin, uid, adminLoaded]);
 
+  const adminDownloadCSV = async () => {
+    if (!isAdmin) return;
+    if (!adminLoaded) await loadAdmin();
+    if (!adminRows.length) { alert('No admin rows to export.'); return; }
+    downloadCSV(`admin_preferences_${new Date().toISOString().slice(0,10)}.csv`, adminRows);
+  };
+
+  /* Draft scheduler (admin) */
+  const generateDraftScheduleCSV = async () => {
+    if (!isAdmin) return;
+    if (!adminLoaded) await loadAdmin();
+    if (!adminRows.length) { alert('No data loaded.'); return; }
+
+    const mostByService = {}; // weekend|service -> { name -> rank }
+    const leastByService = {};
+    const keyOf = (weekend, service) => `${weekend}|${service}`;
+    const ensure = (obj, k) => (obj[k] || (obj[k] = {}));
+
+    adminRows.forEach(r => {
+      const service = r.service;
+      if (!service || service === SERVICES.NONE) return;
+      const k = keyOf(r.weekend, service);
+      if (r.kind === 'MOST') {
+        ensure(mostByService, k)[r.attendee] = Number(r.choice) || 999;
+      } else if (r.kind === 'LEAST') {
+        ensure(leastByService, k)[r.attendee] = Number(r.choice) || 999;
+      }
+    });
+
+    const softCap = (name) => {
+      const lim = ATTENDING_LIMITS[name];
+      if (!lim) return Infinity;
+      if (typeof lim.left === 'number' && lim.left >= 0) return Math.max(0, lim.left);
+      if (typeof lim.requested === 'number' && lim.requested > 0) return lim.requested;
+      return Infinity;
+    };
+
+    const openSlots = [];
+    for (const arr of Object.values(months)) {
+      arr.forEach(w => {
+        if (w.rni === null) openSlots.push({ weekend: w.date, service: SERVICES.RNI });
+        if (w.coa === null) openSlots.push({ weekend: w.date, service: SERVICES.COA });
+      });
+    }
+
+    const assignedCount = {};
+    const bothOnSameWeekend = new Map();
+    const rows = [];
+
+    const scoreFor = (name, weekend, service) => {
+      const k = keyOf(weekend, service);
+      const mostRank = (mostByService[k]?.[name] ?? 999);
+      const leastRank = (leastByService[k]?.[name] ?? 999);
+      let s = (100 - mostRank) - (100 - leastRank); // reward Most, penalize Least
+      const cap = softCap(name);
+      const used = assignedCount[name] || 0;
+      if (used >= cap) s -= 1000;
+      else s -= used * 2;
+      return s;
+    };
+
+    for (const slot of openSlots) {
+      const already = bothOnSameWeekend.get(slot.weekend) || new Set();
+      const candidates = ATTENDINGS.map(a => a.name).filter(n => softCap(n) > 0 && !already.has(n));
+
+      let best = null;
+      let bestScore = -Infinity;
+      for (const name of candidates) {
+        const s = scoreFor(name, slot.weekend, slot.service);
+        if (s > bestScore) { bestScore = s; best = name; }
+      }
+
+      if (best && bestScore > -500) {
+        assignedCount[best] = (assignedCount[best] || 0) + 1;
+        const set = bothOnSameWeekend.get(slot.weekend) || new Set();
+        set.add(best); bothOnSameWeekend.set(slot.weekend, set);
+        rows.push({ weekend: slot.weekend, service: slot.service, assigned: best, score: bestScore });
+      } else {
+        rows.push({ weekend: slot.weekend, service: slot.service, assigned: '(unfilled)', score: '' });
+      }
+    }
+
+    rows.sort((a,b) => (a.weekend.localeCompare(b.weekend) || a.service.localeCompare(b.service)));
+    downloadCSV(`draft_schedule_${new Date().toISOString().slice(0,10)}.csv`, rows);
+  };
+
+  /* Jump + collapse controls for header */
+  const jumpTo = (mk) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [mk]: false };
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`month-${mk}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return next;
+    });
+  };
+  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
+
   return (
-    <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
+    <div className="min-h-screen bg-gray-50" style={{ fontSize: BASE_FONT_SIZE }}>
       {/* Sticky jump/controls */}
       <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
-  <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-    <strong style={{ marginRight: 8 }}>Jump:</strong>
-    {MONTH_KEYS.map((mk, i) => (
-      <button
-        key={mk}
-        onClick={() => jumpTo(mk)}
-        style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}
-      >
-        {MONTH_FULL[i].slice(0,3)}
-      </button>
-    ))}
-    <span style={{ flex: 1 }} />
-    <button
-      onClick={() => collapseAll(true)}
-      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}
-    >
-      Collapse all
-    </button>
-    <button
-      onClick={() => collapseAll(false)}
-      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}
-    >
-      Expand all
-    </button>
-    <button
-      onClick={downloadMyCSV}
-      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color: '#fff', fontSize: 12 }}
-    >
-      Preview/My CSV
-    </button>
-    <button
-      onClick={downloadMyWord}
-      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color: '#fff', fontSize: 12 }}
-    >
-      Preview/My Word
-    </button>
-  </div>
-</div>
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ marginRight: 8 }}>Jump:</strong>
+          {MONTH_KEYS.map((mk, i) => (
+            <button
+              key={mk}
+              onClick={() => jumpTo(mk)}
+              style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}
+            >
+              {MONTH_FULL[i].slice(0,3)}
+            </button>
+          ))}
+          <span style={{ flex: 1 }} />
+          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
+          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
+          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
+          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
+          {isAdmin && (
+            <>
+              <button
+                onClick={adminDownloadCSV}
+                style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 12 }}
+                title="Exports all attendees’ preferences (admin)"
+              >
+                Admin CSV
+              </button>
+              <button
+                onClick={generateDraftScheduleCSV}
+                style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #7c3aed', background: '#8b5cf6', color: '#fff', fontSize: 12 }}
+                title="Generate a first-pass schedule for open slots (admin)"
+              >
+                Draft Schedule CSV
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Header + instructions */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
@@ -790,6 +895,38 @@ export default function App() {
           Status: {status} • Most choices: {counts.mostCount} • Least choices: {counts.leastCount} {submitted ? '• (Locked after submission)' : ''}
         </div>
         <AttendingIdentity profile={profile} saveProfile={saveProfile} />
+
+        {/* Summary panel and balance warnings */}
+        {(() => {
+          const s = computeSummary();
+          const limits = profile.name ? ATTENDING_LIMITS[profile.name] : null;
+          const want = limits?.requested ?? null;
+          const imbalancedMost = s.mostTotal >= 4 && (s.mostBalance <= 40 || s.mostBalance >= 60);
+          const underTarget = want !== null && s.mostTotal < want;
+          return (
+            <div style={{ margin: '8px 0 16px', display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px' }}>
+                <strong style={{ color: '#0f172a' }}>Your summary</strong>
+                <span style={{ fontSize: 13, color: '#334155' }}>Most: RNI {s.mostRNI} • COA {s.mostCOA} • Total {s.mostTotal}</span>
+                <span style={{ fontSize: 13, color: '#334155' }}>Least: RNI {s.leastRNI} • COA {s.leastCOA} • Total {s.leastTotal}</span>
+                {want !== null && <span style={{ fontSize: 13, color: '#334155' }}>Target weekends to rank (Most): {want}</span>}
+                <span style={{ flex: 1 }} />
+                <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
+                <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
+              </div>
+              {imbalancedMost && (
+                <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
+                  Tip: Your <b>Most</b> list is skewed ({s.mostBalance}% RNI). Aim for a more balanced RNI/COA spread if possible.
+                </div>
+              )}
+              {underTarget && (
+                <div style={{ fontSize: 13, color: '#084c61', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 10, padding: '8px 10px' }}>
+                  You’ve selected fewer <b>Most</b> weekends than your target ({s.mostTotal} of {want}). Adding more increases the chance you’ll receive preferred weekends.
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Calendar */}
