@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection } from 'firebase/firestore';
+import {
+  getFirestore, doc, getDoc, setDoc, serverTimestamp, collection,
+  collectionGroup, getDocs, query
+} from 'firebase/firestore';
 
 /* ----------------------------------------------------------------------
-   Firebase config (honors __firebase_config if provided by your build)
+   Firebase config (honors __firebase_config if present)
    ---------------------------------------------------------------------- */
 const firebaseConfig = (() => {
   const FALLBACK = {
@@ -30,10 +33,38 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const prefsDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+/* ----------------------------------------------------------------------
+   Attending roster (edit names/emails here)
+   ---------------------------------------------------------------------- */
+const ATTENDINGS = [
+  { name: "Ambal",   email: "nambalav@uab.edu" },
+  { name: "Arora",   email: "nitinarora@uabmc.edu" },
+  { name: "Bhatia",  email: "ksbhatia@uabmc.edu" },
+  { name: "Boone",   email: "boone@uabmc.edu" },
+  { name: "Carlo",   email: "wcarlo@uabmc.edu" },
+  { name: "Jain",    email: "viraljain@uabmc.edu" },
+  { name: "Kandasamy", email: "jkandasamy@uabmc.edu" },
+  { name: "Kane",    email: "akane@uabmc.edu" },
+  { name: "Mackay",  email: "mackay@uabmc.edu" },
+  { name: "Schuyler",email: "aschuyler@uabmc.edu" },
+  { name: "Shukla",  email: "vshukla@uabmc.edu" },
+  { name: "Sims",    email: "bsims@uabmc.edu" },
+  { name: "Travers", email: "cptravers@uabmc.edu" },
+  { name: "Willis",  email: "kentwillis@uabmc.edu" },
+  { name: "Winter",  email: "lwinter@uabmc.edu" },
+  { name: "Salas",  email: "asalas@uabmc.edu" },
+  { name: "Lal",  email: "clal@uabmc.edu" },
+  { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
+];
 
 /* ----------------------------------------------------------------------
-   Calendar data: weekends by month (Sat-based, with holiday notes)
+   Paths and refs
+   ---------------------------------------------------------------------- */
+const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
+const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+
+/* ----------------------------------------------------------------------
+   Calendar data (Sat-based weekends; holiday spans noted)
    ---------------------------------------------------------------------- */
 const months = {
   '01': [
@@ -64,7 +95,7 @@ const months = {
     { day: '2',   date: '2026-05-02', rni: null,    coa: null },
     { day: '9',   date: '2026-05-09', rni: 'Arora', coa: null },
     { day: '16',  date: '2026-05-16', rni: 'Arora', coa: null },
-    { day: '23-25', date: '2026-05-23', rni: null, coa: null, detail: 'Memorial Day' },
+    { day: '23-25', date: '2026-05-23', rni: null,  coa: null, detail: 'Memorial Day' },
     { day: '30',  date: '2026-05-30', rni: 'Arora', coa: null },
   ],
   '06': [
@@ -119,7 +150,7 @@ const MONTH_FULL = ['January','February','March','April','May','June','July','Au
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
 /* ----------------------------------------------------------------------
-   Preferences shape and helpers
+   Helpers
    ---------------------------------------------------------------------- */
 function initEmptyPrefs() {
   const base = {};
@@ -128,8 +159,24 @@ function initEmptyPrefs() {
   });
   return base;
 }
-
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
+
+/* Month visuals */
+const MONTH_COLORS = [
+  { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' }, // Jan
+  { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' }, // Feb
+  { bg: '#bbf7d0', fg: '#064e3b', border: '#10b981' }, // Mar
+  { bg: '#fecaca', fg: '#7f1d1d', border: '#f87171' }, // Apr
+  { bg: '#ddd6fe', fg: '#312e81', border: '#8b5cf6' }, // May
+  { bg: '#c7d2fe', fg: '#1e3a8a', border: '#6366f1' }, // Jun
+  { bg: '#fbcfe8', fg: '#831843', border: '#ec4899' }, // Jul
+  { bg: '#a7f3d0', fg: '#065f46', border: '#34d399' }, // Aug
+  { bg: '#fcd34d', fg: '#1f2937', border: '#f59e0b' }, // Sep
+  { bg: '#fca5a5', fg: '#7f1d1d', border: '#ef4444' }, // Oct
+  { bg: '#93c5fd', fg: '#1e3a8a', border: '#3b82f6' }, // Nov
+  { bg: '#86efac', fg: '#064e3b', border: '#22c55e' }, // Dec
+];
+const MONTH_MIN_HEIGHT = 520;
 
 function RadioService({ value, onChange, disabled, name }) {
   return (
@@ -145,7 +192,6 @@ function RadioService({ value, onChange, disabled, name }) {
     </div>
   );
 }
-
 function RankSelect({ value, onChange, disabled, placeholder }) {
   return (
     <select
@@ -160,30 +206,7 @@ function RankSelect({ value, onChange, disabled, placeholder }) {
   );
 }
 
-/* ----------------------------------------------------------------------
-   Month visuals (colors). Safe fallback prevents 'bg' undefined.
-   ---------------------------------------------------------------------- */
-const MONTH_COLORS = [
-  { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' }, // Jan
-  { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' }, // Feb
-  { bg: '#bbf7d0', fg: '#064e3b', border: '#10b981' }, // Mar
-  { bg: '#fecaca', fg: '#7f1d1d', border: '#f87171' }, // Apr
-  { bg: '#ddd6fe', fg: '#312e81', border: '#8b5cf6' }, // May
-  { bg: '#c7d2fe', fg: '#1e3a8a', border: '#6366f1' }, // Jun
-  { bg: '#fbcfe8', fg: '#831843', border: '#ec4899' }, // Jul
-  { bg: '#a7f3d0', fg: '#065f46', border: '#34d399' }, // Aug
-  { bg: '#fcd34d', fg: '#1f2937', border: '#f59e0b' }, // Sep
-  { bg: '#fca5a5', fg: '#7f1d1d', border: '#ef4444' }, // Oct
-  { bg: '#93c5fd', fg: '#1e3a8a', border: '#3b82f6' }, // Nov
-  { bg: '#86efac', fg: '#064e3b', border: '#22c55e' }, // Dec
-];
-
-const MONTH_MIN_HEIGHT = 520;
-
-/* ----------------------------------------------------------------------
-   Month card (equal-height; collapsible; colored header)
-   ---------------------------------------------------------------------- */
-function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, cardRef }) {
+function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, cardRef, locked }) {
   const idx = parseInt(mk, 10) - 1;
   const color = MONTH_COLORS[idx] ?? { bg: '#eeeeee', fg: '#111111', border: '#cccccc' };
 
@@ -253,19 +276,19 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                 </div>
 
                 {!fullyAssigned ? (
-                  <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ display: 'grid', gap: 10, opacity: locked ? 0.6 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
                     {/* MOST */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Most (service + rank required)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                         <RadioService
-                          disabled={false}
+                          disabled={locked}
                           value={p.mostService}
                           onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
                           name={`most-${w.date}`}
                         />
                         <RankSelect
-                          disabled={p.mostService === SERVICES.NONE}
+                          disabled={locked || p.mostService === SERVICES.NONE}
                           value={p.mostRank}
                           onChange={(rank) => onMostChange(w.date, { ...p, mostRank: rank })}
                           placeholder="Most rank…"
@@ -277,18 +300,18 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                       </div>
                     </div>
 
-                    {/* LEAST (service optional) */}
+                    {/* LEAST */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Least (rank required; service optional)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                         <RadioService
-                          disabled={false}
+                          disabled={locked}
                           value={p.leastService}
                           onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
                           name={`least-${w.date}`}
                         />
                         <RankSelect
-                          disabled={false}
+                          disabled={locked}
                           value={p.leastRank}
                           onChange={(rank) => onLeastChange(w.date, { ...p, leastRank: rank })}
                           placeholder="Least rank…"
@@ -312,18 +335,69 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 }
 
 /* ----------------------------------------------------------------------
-   App shell (sticky nav, centered grid, collapsed-by-default)
+   CSV/Word helpers (user preview + final) and Admin CSV
+   ---------------------------------------------------------------------- */
+function toCSV(rows) {
+  const headers = Object.keys(rows[0] || { });
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const body = rows.map(r => headers.map(h => esc(r[h])).join(',')).join('\n');
+  return [headers.join(','), body].join('\n');
+}
+function downloadBlob(filename, mime, content) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function downloadCSV(filename, rows) {
+  if (!rows.length) return alert('Nothing to export.');
+  downloadBlob(filename, 'text/csv;charset=utf-8;', toCSV(rows));
+}
+function docHtml(name, email, top10, bottom10) {
+  const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const row = (kind, r) => `
+    <tr>
+      <td>${esc(kind)}</td>
+      <td>${esc(r.rank)}</td>
+      <td>${esc(r.service || '')}</td>
+      <td>${esc(r.weekend)}</td>
+    </tr>`;
+  return `
+  <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+  <head><meta charset="utf-8"><title>Preferences</title></head>
+  <body>
+    <h2>2026 Weekend Preferences</h2>
+    <p><b>Name:</b> ${esc(name || '')} &nbsp; <b>Email:</b> ${esc(email || '')}</p>
+    <table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
+      <thead style="background:#f3f4f6">
+        <tr><th>Kind</th><th>Rank</th><th>Service</th><th>Weekend (Sat date)</th></tr>
+      </thead>
+      <tbody>
+        ${top10.map(r => row('MOST', r)).join('')}
+        ${bottom10.map(r => row('LEAST', r)).join('')}
+      </tbody>
+    </table>
+    <p style="margin-top:12px;font-size:12px;color:#555">Generated on ${new Date().toLocaleString()}</p>
+  </body>
+  </html>`;
+}
+
+/* ----------------------------------------------------------------------
+   Main App
    ---------------------------------------------------------------------- */
 export default function App() {
   const [uid, setUid] = useState(null);
   const [status, setStatus] = useState('Authenticating…');
   const [prefs, setPrefs] = useState(initEmptyPrefs());
+  const [profile, setProfile] = useState({ name: '', email: '' });
+  const [submitted, setSubmitted] = useState(false);
 
-  // Start all months collapsed
   const [collapsed, setCollapsed] = useState(() =>
     Object.fromEntries(MONTH_KEYS.map(mk => [mk, true]))
   );
-
+  const isAdmin = new URLSearchParams(window.location.search).get('admin') === '1';
   const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
 
   // auth
@@ -335,7 +409,7 @@ export default function App() {
         else await signInAnonymously(auth);
         onAuthStateChanged(auth, (u) => {
           if (u) setUid(u.uid);
-          setStatus('Loading preferences…');
+          setStatus('Loading profile & preferences…');
         });
       } catch (e) {
         console.error(e);
@@ -344,18 +418,21 @@ export default function App() {
     })();
   }, []);
 
-  // load existing prefs
+  // load profile + prefs
   useEffect(() => {
     if (!uid) return;
     (async () => {
       try {
-        const snap = await getDoc(prefsDocRef(uid));
-        if (snap.exists()) {
-          const d = snap.data();
-          if (d.preferences) {
-            const next = { ...initEmptyPrefs(), ...d.preferences };
-            setPrefs(next);
-          } else if (d.top10 || d.bottom10) {
+        const [proSnap, prefSnap] = await Promise.all([getDoc(profileDocRef(uid)), getDoc(prefsDocRef(uid))]);
+        if (proSnap.exists()) {
+          const d = proSnap.data();
+          setProfile({ name: d.name || '', email: d.email || '' });
+        }
+        if (prefSnap.exists()) {
+          const d = prefSnap.data();
+          setSubmitted(Boolean(d.submitted));
+          if (d.preferences) setPrefs({ ...initEmptyPrefs(), ...d.preferences });
+          else if (d.top10 || d.bottom10) {
             const next = initEmptyPrefs();
             (d.top10 || []).forEach(t => {
               next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostRank: t.rank || 0 };
@@ -374,6 +451,7 @@ export default function App() {
     })();
   }, [uid]);
 
+  // setters
   const setMost = useCallback((id, v) => {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostRank: v.mostRank } }));
   }, []);
@@ -381,7 +459,7 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
   }, []);
 
-  // validation summary (10 Most with unique ranks, 10 Least with unique ranks)
+  // validation
   const counts = useMemo(() => {
     const mostRanks = [];
     const leastRanks = [];
@@ -395,42 +473,101 @@ export default function App() {
     return { validMost, validLeast, isValid: validMost && validLeast, mostCount: mostRanks.length, leastCount: leastRanks.length };
   }, [prefs]);
 
-  const handleSubmit = async () => {
-    if (!uid || !counts.isValid) return;
+  // save profile on change
+  const saveProfile = async (next) => {
+    setProfile(next);
+    if (!uid) return;
+    await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
+  };
 
-    // Also save tidy arrays for downstream processing
+  // assemble arrays from current prefs
+  const assembleTopBottom = useCallback(() => {
     const orderIdx = id => allWeekendIds.indexOf(id);
     const top10 = [];
     const bottom10 = [];
     for (const [id, p] of Object.entries(prefs)) {
-      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) {
-        top10.push({ weekend: id, rank: p.mostRank, service: p.mostService });
-      }
-      if (p.leastRank > 0) {
-        bottom10.push({ weekend: id, rank: p.leastRank, service: p.leastService === SERVICES.NONE ? '' : p.leastService });
-      }
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) top10.push({ weekend: id, rank: p.mostRank, service: p.mostService });
+      if (p.leastRank > 0) bottom10.push({ weekend: id, rank: p.leastRank, service: p.leastService === SERVICES.NONE ? '' : p.leastService });
     }
     top10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
     bottom10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
+    return { top10, bottom10 };
+  }, [prefs]);
 
+  // submit and lock
+  const handleSubmit = async () => {
+    if (!uid || !counts.isValid || !profile.name) {
+      alert('Select your name, complete 10 Most + 10 Least with unique ranks.');
+      return;
+    }
+    const { top10, bottom10 } = assembleTopBottom();
     await setDoc(prefsDocRef(uid), {
+      name: profile.name,
+      email: profile.email || '',
       preferences: prefs,
       top10,
       bottom10,
+      submitted: true,
+      submittedAt: serverTimestamp(),
       lastUpdated: serverTimestamp()
     }, { merge: true });
-
-    alert('Preferences saved.');
+    setSubmitted(true);
+    alert('Preferences submitted. Downloads now reflect your final locked choices.');
   };
 
-  const monthTitleFull = mk => `${MONTH_FULL[parseInt(mk,10)-1]} ${YEAR}`;
+  // user downloads (always available; labeled based on submitted state)
+  const downloadMyCSV = () => {
+    const { top10, bottom10 } = assembleTopBottom();
+    const rows = [
+      ...top10.map(t => ({ attendee: profile.name, email: profile.email || '', kind: 'MOST', rank: t.rank, service: t.service, weekend: t.weekend })),
+      ...bottom10.map(b => ({ attendee: profile.name, email: profile.email || '', kind: 'LEAST', rank: b.rank, service: b.service || '', weekend: b.weekend })),
+    ];
+    const fn = submitted ? `preferences_${profile.name || 'attending'}.csv`
+                         : `preferences_preview_${profile.name || 'attending'}.csv`;
+    downloadCSV(fn, rows);
+  };
+  const downloadMyWord = () => {
+    const { top10, bottom10 } = assembleTopBottom();
+    const html = docHtml(profile.name, profile.email, top10, bottom10);
+    const fn = submitted ? `preferences_${profile.name || 'attending'}.doc`
+                         : `preferences_preview_${profile.name || 'attending'}.doc`;
+    downloadBlob(fn, 'application/msword', html);
+  };
+
+  // UI helpers
   const jumpTo = mk => monthRefs.current[mk]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const toggleMonth = mk => setCollapsed(prev => ({ ...prev, [mk]: !prev[mk] }));
   const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
+
+  /* ---------------- Admin CSV (query ?admin=1) ---------------- */
+  const [adminRows, setAdminRows] = useState([]);
+  const [adminLoaded, setAdminLoaded] = useState(false);
+  const loadAdmin = async () => {
+    const q = query(collectionGroup(db, 'preferences'));
+    const snap = await getDocs(q);
+    const rows = [];
+    snap.forEach(d => {
+      const data = d.data();
+      if (!data || !data.top10 || !data.bottom10) return;
+      const attendee = data.name || '(unknown)';
+      const em = data.email || '';
+      const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
+      data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST', rank: t.rank, service: t.service, weekend: t.weekend, submittedAt }));
+      data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', rank: b.rank, service: b.service || '', weekend: b.weekend, submittedAt }));
+    });
+    setAdminRows(rows.sort((a,b) => (a.attendee || '').localeCompare(b.attendee || '') || (a.kind.localeCompare(b.kind)) || (a.rank - b.rank)));
+    setAdminLoaded(true);
+  };
+
+  useEffect(() => {
+    if (isAdmin && uid && !adminLoaded) loadAdmin().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, uid]);
+
+  const locked = submitted;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Sticky Jump-to-Month nav */}
+      {/* Sticky Jump-to-Month + Admin/Download bar */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 50,
         background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)',
@@ -444,24 +581,82 @@ export default function App() {
             </button>
           ))}
           <span style={{ flex: 1 }} />
-          <button onClick={() => collapseAll(true)}  style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Collapse all</button>
-          <button onClick={() => collapseAll(false)} style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Expand all</button>
+          {!isAdmin ? (
+            <>
+              <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>
+                Collapse all
+              </button>
+              <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>
+                Expand all
+              </button>
+              <button
+                onClick={downloadMyCSV}
+                style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}
+                title={submitted ? 'Download My CSV' : 'Download Preview (CSV)'}
+              >
+                {submitted ? 'My CSV' : 'Preview CSV'}
+              </button>
+              <button
+                onClick={downloadMyWord}
+                style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}
+                title={submitted ? 'Download My Word Table' : 'Download Preview (Word)'}
+              >
+                {submitted ? 'My Word Table' : 'Preview Word'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => loadAdmin()} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>
+                Refresh
+              </button>
+              <button
+                onClick={() => adminRows.length ? downloadCSV('attending-preferences.csv', adminRows) : alert('No rows loaded yet.')}
+                style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}
+              >
+                Export CSV
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       {/* Header */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
-        <p className="text-sm text-gray-600 mb-4">
-          Each month is a tile. For each weekend, select <b>Most</b> (service + rank) and/or <b>Least</b> (rank required, service optional).
-          You must complete exactly 10 Most and 10 Least with no duplicate ranks within a bucket to submit.
+        <p className="text-sm text-gray-600 mb-2">
+          1) Select your name below. 2) Expand months to choose 10 <b>Most</b> (service + rank) and 10 <b>Least</b> (rank; service optional).
+          3) Submit to lock. You can download a preview anytime.
         </p>
-        <div className="mb-4 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
-          Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10
+        <div className="mb-3 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
+          Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10 {locked ? '• (Locked after submission)' : ''}
+        </div>
+
+        {/* Attending identity */}
+        <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:12 }}>
+          <label style={{ fontSize:14, fontWeight:600 }}>Your name:</label>
+          <select
+            disabled={locked}
+            value={profile.name}
+            onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220 }}
+          >
+            <option value="">— Select —</option>
+            {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+          </select>
+
+          <label style={{ fontSize:14, fontWeight:600, marginLeft:8 }}>Email (optional):</label>
+          <input
+            disabled={locked}
+            type="email"
+            value={profile.email}
+            placeholder="you@uab.edu"
+            onChange={e => saveProfile({ ...profile, email: e.target.value })}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260 }}
+          />
         </div>
       </div>
 
-      {/* Centered 2-column equal-height grid (auto wraps on small screens) */}
+      {/* Centered 2x6 grid */}
       <div style={{
         maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
         display: 'grid',
@@ -471,31 +666,71 @@ export default function App() {
         justifyContent: 'center',
         justifyItems: 'stretch'
       }}>
-        {MONTH_KEYS.map(mk => (
+        {MONTH_KEYS.map((mk, i) => (
           <MonthCard
             key={mk}
             mk={mk}
-            label={monthTitleFull(mk)}
+            label={`${MONTH_FULL[i]} ${YEAR}`}
             items={months[mk]}
             prefs={prefs}
             onMostChange={(id, v) => setMost(id, v)}
             onLeastChange={(id, v) => setLeast(id, v)}
             collapsed={collapsed[mk]}
-            onToggle={() => toggleMonth(mk)}
+            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
             cardRef={monthRefs.current[mk]}
+            locked={locked}
           />
         ))}
       </div>
 
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px' }}>
-        <button
-          className={`${counts.isValid ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
-          disabled={!counts.isValid}
-          onClick={handleSubmit}
-        >
-          Submit Final Preferences
-        </button>
-      </div>
+      {/* Submit and note */}
+      {!isAdmin && (
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
+          <button
+            className={`${counts.isValid && profile.name && !locked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
+            disabled={!counts.isValid || !profile.name || locked}
+            onClick={handleSubmit}
+          >
+            {locked ? 'Submitted (Locked)' : 'Submit Final Preferences'}
+          </button>
+          <span className="text-sm text-gray-600">
+            {locked ? 'Locked. Downloads above reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}
+          </span>
+        </div>
+      )}
+
+      {/* Admin table */}
+      {isAdmin && (
+        <div style={{ maxWidth:1120, margin:'0 auto', padding:'0 12px 32px' }}>
+          <div className="text-sm text-gray-600" style={{ marginBottom:8 }}>
+            Admin mode: loaded {adminRows.length} rows. Use “Export CSV” above.
+          </div>
+          <div style={{ overflowX:'auto', border:'1px solid #e5e7eb', borderRadius:8 }}>
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead>
+                <tr style={{ background:'#f3f4f6' }}>
+                  {['attendee','email','kind','rank','service','weekend','submittedAt'].map(h => (
+                    <th key={h} style={{ textAlign:'left', padding:8, borderBottom:'1px solid #e5e7eb' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {adminRows.map((r,i)=>(
+                  <tr key={i} style={{ borderBottom:'1px solid #f3f4f6' }}>
+                    <td style={{ padding:8 }}>{r.attendee}</td>
+                    <td style={{ padding:8 }}>{r.email}</td>
+                    <td style={{ padding:8 }}>{r.kind}</td>
+                    <td style={{ padding:8 }}>{r.rank}</td>
+                    <td style={{ padding:8 }}>{r.service}</td>
+                    <td style={{ padding:8 }}>{r.weekend}</td>
+                    <td style={{ padding:8 }}>{r.submittedAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
