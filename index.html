@@ -5,6 +5,27 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>scheduling-app</title>
+
+    <!-- Firebase fallback shim: must be before any module script -->
+    <script>
+      (function () {
+        if (!window.FALLBACK_FIREBASE_CONFIG) {
+          window.FALLBACK_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
+            authDomain: "attending-schedule-2026.firebaseapp.com",
+            projectId: "attending-schedule-2026",
+            storageBucket: "attending-schedule-2026.firebasestorage.app",
+            messagingSenderId: "777996986623",
+            appId: "1:777996986623:web:0a8697cccb63149d9744ca",
+            measurementId: "G-TJXCM9P7W2"
+          };
+        }
+        // If you ever inject a JSON string global, parse it once
+        if (typeof window.__firebase_config === "string") {
+          try { window.__firebase_config = JSON.parse(window.__firebase_config); } catch {}
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

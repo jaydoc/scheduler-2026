@@ -1,0 +1,688 @@
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import {
+  getFirestore, doc, getDoc, setDoc, serverTimestamp, collection,
+  collectionGroup, getDocs, query
+} from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+
+/* ----------------------------------------------------------------------
+   Firebase config (honors __firebase_config if present)
+   ---------------------------------------------------------------------- */
+const firebaseConfig = (() => {
+  const FALLBACK = {
+    apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
+    authDomain: "attending-schedule-2026.firebaseapp.com",
+    projectId: "attending-schedule-2026",
+    storageBucket: "attending-schedule-2026.firebasestorage.app",
+    messagingSenderId: "777996986623",
+    appId: "1:777996986623:web:0a8697cccb63149d9744ca",
+    measurementId: "G-TJXCM9P7W2"
+  };
+  if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+    try { return JSON.parse(__firebase_config); } catch { return FALLBACK; }
+  }
+  return FALLBACK;
+})();
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v6";
+const YEAR = 2026;
+const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const functions = getFunctions(app);
+
+/* ----------------------------------------------------------------------
+   Attending roster (edit names/emails here)
+   ---------------------------------------------------------------------- */
+const ATTENDINGS = [
+  { name: "Ambal",   email: "nambalav@uab.edu" },
+  { name: "Arora",   email: "nitinarora@uabmc.edu" },
+  { name: "Bhatia",  email: "ksbhatia@uabmc.edu" },
+  { name: "Boone",   email: "boone@uabmc.edu" },
+  { name: "Carlo",   email: "wcarlo@uabmc.edu" },
+  { name: "Jain",    email: "viraljain@uabmc.edu" },
+  { name: "Kandasamy", email: "jkandasamy@uabmc.edu" },
+  { name: "Kane",    email: "akane@uabmc.edu" },
+  { name: "Mackay",  email: "mackay@uabmc.edu" },
+  { name: "Schuyler",email: "aschuyler@uabmc.edu" },
+  { name: "Shukla",  email: "vshukla@uabmc.edu" },
+  { name: "Sims",    email: "bsims@uabmc.edu" },
+  { name: "Travers", email: "cptravers@uabmc.edu" },
+  { name: "Willis",  email: "kentwillis@uabmc.edu" },
+  { name: "Winter",  email: "lwinter@uabmc.edu" },
+  { name: "Salas",  email: "asalas@uabmc.edu" },
+  { name: "Lal",  email: "clal@uabmc.edu" },
+  { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
+  // add anyone missing to reach your 18 attendings exactly
+];
+
+/* ----------------------------------------------------------------------
+   Paths and refs
+   ---------------------------------------------------------------------- */
+const profileDocRef = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'profile'), 'current');
+const prefsDocRef   = (uid) => doc(collection(db, 'artifacts', appId, 'users', uid, 'preferences'), 'calendar-preferences');
+
+/* ----------------------------------------------------------------------
+   Calendar data
+   ---------------------------------------------------------------------- */
+const months = {
+  '01': [
+    { day: '10', date: '2026-01-10', rni: null, coa: null },
+    { day: '17-19', date: '2026-01-17', rni: null, coa: null, detail: 'MLK Day' },
+    { day: '24', date: '2026-01-24', rni: null, coa: null },
+    { day: '31', date: '2026-01-31', rni: null, coa: null },
+  ],
+  '02': [
+    { day: '7',  date: '2026-02-07', rni: 'Boone',  coa: null },
+    { day: '14', date: '2026-02-14', rni: 'Boone',  coa: null },
+    { day: '21', date: '2026-02-21', rni: 'Willis', coa: null },
+    { day: '28', date: '2026-02-28', rni: 'Willis', coa: null },
+  ],
+  '03': [
+    { day: '7',  date: '2026-03-07', rni: 'Ambal',  coa: 'Arora', isTaken: true },
+    { day: '14', date: '2026-03-14', rni: null,     coa: 'Winter' },
+    { day: '21', date: '2026-03-21', rni: 'Ambal',  coa: 'Arora', isTaken: true },
+    { day: '28', date: '2026-03-28', rni: null,     coa: 'Arora' },
+  ],
+  '04': [
+    { day: '4',  date: '2026-04-04', rni: 'Sims', coa: null },
+    { day: '11', date: '2026-04-11', rni: null,   coa: null },
+    { day: '18', date: '2026-04-18', rni: 'Sims', coa: null },
+    { day: '25', date: '2026-04-25', rni: null,   coa: null, detail: 'PAS Meeting Coverage' },
+  ],
+  '05': [
+    { day: '2',   date: '2026-05-02', rni: null,    coa: null },
+    { day: '9',   date: '2026-05-09', rni: 'Arora', coa: null },
+    { day: '16',  date: '2026-05-16', rni: 'Arora', coa: null },
+    { day: '23-25', date: '2026-05-23', rni: null,  coa: null, detail: 'Memorial Day' },
+    { day: '30',  date: '2026-05-30', rni: 'Arora', coa: null },
+  ],
+  '06': [
+    { day: '6',    date: '2026-06-06', rni: 'Schuyler', coa: 'Winter', isTaken: true },
+    { day: '13',   date: '2026-06-13', rni: 'Boone',    coa: null },
+    { day: '19-21',date: '2026-06-19', rni: 'Schuyler', coa: 'Winter', isTaken: true, detail: 'Juneteenth Day' },
+    { day: '27',   date: '2026-06-27', rni: 'Boone',    coa: null },
+  ],
+  '07': [
+    { day: '4-6', date: '2026-07-04', rni: 'Jain',    coa: 'Carlo',  isTaken: true, detail: '4th of July' },
+    { day: '11',  date: '2026-07-11', rni: null,      coa: 'Willis' },
+    { day: '18',  date: '2026-07-18', rni: null,      coa: null },
+    { day: '25',  date: '2026-07-25', rni: 'Shukla',  coa: 'Willis', isTaken: true },
+  ],
+  '08': [
+    { day: '1',  date: '2026-08-01', rni: 'Boone',  coa: null },
+    { day: '8',  date: '2026-08-08', rni: 'Sims',   coa: 'Carlo', isTaken: true },
+    { day: '15', date: '2026-08-15', rni: 'Boone',  coa: null },
+    { day: '22', date: '2026-08-22', rni: 'Sims',   coa: null },
+    { day: '29', date: '2026-08-29', rni: null,     coa: 'Carlo' },
+  ],
+  '09': [
+    { day: '5-7', date: '2026-09-05', rni: 'Mackay', coa: null, detail: 'Labor Day' },
+    { day: '12',  date: '2026-09-12', rni: null,     coa: null },
+    { day: '19',  date: '2026-09-19', rni: null,     coa: null },
+    { day: '26',  date: '2026-09-26', rni: null,     coa: null },
+  ],
+  '10': [
+    { day: '3',  date: '2026-10-03', rni: 'Kandasamy', coa: 'Carlo',  isTaken: true },
+    { day: '10', date: '2026-10-10', rni: 'Travers',   coa: 'Bhatia', isTaken: true },
+    { day: '17', date: '2026-10-17', rni: 'Kandasamy', coa: null },
+    { day: '24', date: '2026-10-24', rni: 'Travers',   coa: 'Bhatia', isTaken: true },
+    { day: '31', date: '2026-10-31', rni: 'Kandasamy', coa: 'Carlo',  isTaken: true },
+  ],
+  '11': [
+    { day: '7',  date: '2026-11-07', rni: 'Ambal',  coa: null },
+    { day: '14', date: '2026-11-14', rni: 'Bhatia', coa: null },
+    { day: '21', date: '2026-11-21', rni: 'Ambal',  coa: null },
+    { day: '26-28', date: '2026-11-26', rni: 'Bhatia', coa: null, isTaken: false, detail: 'Thanksgiving' },
+  ],
+  '12': [
+    { day: '5',       date: '2026-12-05', rni: 'Travers',   coa: 'Kandasamy', isTaken: true },
+    { day: '12',      date: '2026-12-12', rni: null,        coa: null },
+    { day: '19',      date: '2026-12-19', rni: 'Travers',   coa: 'Kandasamy', isTaken: true },
+    { day: '24-28',   date: '2026-12-24', rni: 'Bhatia',    coa: 'Arora',     isTaken: true, detail: 'Christmas' },
+    { day: '31-Jan 4',date: '2026-12-31', rni: 'Kane',      coa: 'Kandasamy', isTaken: true, detail: "New Year's Eve" },
+  ],
+};
+
+const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12'];
+const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const allWeekendIds = Object.values(months).flat().map(w => w.date);
+
+/* ----------------------------------------------------------------------
+   Helpers
+   ---------------------------------------------------------------------- */
+function initEmptyPrefs() {
+  const base = {};
+  allWeekendIds.forEach(id => {
+    base[id] = { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
+  });
+  return base;
+}
+const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
+
+/* ----------------------------------------------------------------------
+   Month visuals
+   ---------------------------------------------------------------------- */
+const MONTH_COLORS = [
+  { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' }, // Jan
+  { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' }, // Feb
+  { bg: '#bbf7d0', fg: '#064e3b', border: '#10b981' }, // Mar
+  { bg: '#fecaca', fg: '#7f1d1d', border: '#f87171' }, // Apr
+  { bg: '#ddd6fe', fg: '#312e81', border: '#8b5cf6' }, // May
+  { bg: '#c7d2fe', fg: '#1e3a8a', border: '#6366f1' }, // Jun
+  { bg: '#fbcfe8', fg: '#831843', border: '#ec4899' }, // Jul
+  { bg: '#a7f3d0', fg: '#065f46', border: '#34d399' }, // Aug
+  { bg: '#fcd34d', fg: '#1f2937', border: '#f59e0b' }, // Sep
+  { bg: '#fca5a5', fg: '#7f1d1d', border: '#ef4444' }, // Oct
+  { bg: '#93c5fd', fg: '#1e3a8a', border: '#3b82f6' }, // Nov
+  { bg: '#86efac', fg: '#064e3b', border: '#22c55e' }, // Dec
+];
+const MONTH_MIN_HEIGHT = 520;
+
+function RadioService({ value, onChange, disabled, name }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <input type="radio" disabled={disabled} checked={value === SERVICES.RNI} onChange={() => onChange(SERVICES.RNI)} name={name} />
+        RNI
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <input type="radio" disabled={disabled} checked={value === SERVICES.COA} onChange={() => onChange(SERVICES.COA)} name={name} />
+        COA
+      </label>
+    </div>
+  );
+}
+function RankSelect({ value, onChange, disabled, placeholder }) {
+  return (
+    <select
+      disabled={disabled}
+      value={String(value || 0)}
+      onChange={e => onChange(parseInt(e.target.value, 10))}
+      style={{ padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: 10 }}
+    >
+      <option value="0">{placeholder}</option>
+      {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+    </select>
+  );
+}
+
+function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, cardRef, locked }) {
+  const idx = parseInt(mk, 10) - 1;
+  const color = MONTH_COLORS[idx] ?? { bg: '#eeeeee', fg: '#111111', border: '#cccccc' };
+
+  return (
+    <div
+      ref={cardRef}
+      id={`month-${mk}`}
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        border: `1px solid #e2e8f0`,
+        borderRadius: 16,
+        background: '#fff',
+        boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+      }}
+    >
+      <button
+        onClick={onToggle}
+        style={{
+          background: color.bg,
+          color: color.fg,
+          borderBottom: `2px solid ${color.border}`,
+          fontWeight: 800,
+          padding: '10px 12px',
+          textAlign: 'center',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 8,
+          cursor: 'pointer'
+        }}
+        title="Collapse/expand"
+      >
+        <span>{label}</span>
+        <span style={{ fontWeight: 900, marginLeft: 6 }}>{collapsed ? '▸' : '▾'}</span>
+      </button>
+
+      {!collapsed && (
+        <div style={{ padding: 12, display: 'flex', flexDirection: 'column', gap: 12, minHeight: MONTH_MIN_HEIGHT }}>
+          {items.map(w => {
+            const p = prefs[w.date] || { mostService: SERVICES.NONE, mostRank: 0, leastService: SERVICES.NONE, leastRank: 0 };
+            const rniOpen = w.rni === null;
+            const coaOpen = w.coa === null;
+            const fullyAssigned = w.isTaken || (!rniOpen && !coaOpen);
+
+            return (
+              <div key={w.date} style={{
+                padding: 12,
+                borderRadius: 12,
+                border: '1px solid #e5e7eb',
+                background: fullyAssigned ? '#f9fafb' : '#fff',
+                opacity: fullyAssigned ? 0.75 : 1
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#111827' }}>{w.day}</div>
+                  {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
+                </div>
+
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                  <span style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#374151', borderRadius: 6, padding: '2px 6px', marginRight: 8 }}>
+                    RNI: {rniOpen ? 'OPEN' : w.rni}
+                  </span>
+                  <span style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#374151', borderRadius: 6, padding: '2px 6px' }}>
+                    COA: {coaOpen ? 'OPEN' : w.coa}
+                  </span>
+                </div>
+
+                {!fullyAssigned ? (
+                  <div style={{ display: 'grid', gap: 10, opacity: locked ? 0.6 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
+                    {/* MOST */}
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Most (service + rank required)</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                        <RadioService
+                          disabled={locked}
+                          value={p.mostService}
+                          onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
+                          name={`most-${w.date}`}
+                        />
+                        <RankSelect
+                          disabled={locked || p.mostService === SERVICES.NONE}
+                          value={p.mostRank}
+                          onChange={(rank) => onMostChange(w.date, { ...p, mostRank: rank })}
+                          placeholder="Most rank…"
+                        />
+                        {p.mostService !== SERVICES.NONE && p.mostRank > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostRank}</span>}
+                        {p.mostService !== SERVICES.NONE && !(p.mostService === SERVICES.RNI ? rniOpen : coaOpen) && (
+                          <span style={{ fontSize: 12, color: '#92400e' }}>Selected service isn’t open for this weekend.</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* LEAST */}
+                    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Least (rank required; service optional)</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                        <RadioService
+                          disabled={locked}
+                          value={p.leastService}
+                          onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
+                          name={`least-${w.date}`}
+                        />
+                        <RankSelect
+                          disabled={locked}
+                          value={p.leastRank}
+                          onChange={(rank) => onLeastChange(w.date, { ...p, leastRank: rank })}
+                          placeholder="Least rank…"
+                        />
+                        {p.leastRank > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastRank}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#991b1b', background: '#fee2e2', padding: 8, borderRadius: 8, textAlign: 'center' }}>
+                    FULLY ASSIGNED — NO RANKING AVAILABLE
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ----------------------------------------------------------------------
+   Admin: collectionGroup query + CSV export
+   ---------------------------------------------------------------------- */
+function toCSV(rows) {
+  const headers = Object.keys(rows[0] || { });
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const body = rows.map(r => headers.map(h => esc(r[h])).join(',')).join('\n');
+  return [headers.join(','), body].join('\n');
+}
+function downloadCSV(filename, rows) {
+  const csv = toCSV(rows);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ----------------------------------------------------------------------
+   App
+   ---------------------------------------------------------------------- */
+export default function App() {
+  const [uid, setUid] = useState(null);
+  const [status, setStatus] = useState('Authenticating…');
+  const [prefs, setPrefs] = useState(initEmptyPrefs());
+  const [profile, setProfile] = useState({ name: '', email: '' });
+  const [submitted, setSubmitted] = useState(false);
+
+  const [collapsed, setCollapsed] = useState(() =>
+    Object.fromEntries(MONTH_KEYS.map(mk => [mk, true]))
+  );
+
+  const params = new URLSearchParams(window.location.search);
+  const isAdmin = params.get('admin') === '1';
+
+  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
+
+  // auth
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        if (token) await signInWithCustomToken(auth, token);
+        else await signInAnonymously(auth);
+        onAuthStateChanged(auth, (u) => {
+          if (u) setUid(u.uid);
+          setStatus('Loading profile & preferences…');
+        });
+      } catch (e) {
+        console.error(e);
+        setStatus(`Auth error: ${e.message}`);
+      }
+    })();
+  }, []);
+
+  // load profile + prefs
+  useEffect(() => {
+    if (!uid) return;
+    (async () => {
+      try {
+        const [proSnap, prefSnap] = await Promise.all([getDoc(profileDocRef(uid)), getDoc(prefsDocRef(uid))]);
+        if (proSnap.exists()) {
+          const d = proSnap.data();
+          setProfile({ name: d.name || '', email: d.email || '' });
+        }
+        if (prefSnap.exists()) {
+          const d = prefSnap.data();
+          setSubmitted(Boolean(d.submitted));
+          if (d.preferences) setPrefs({ ...initEmptyPrefs(), ...d.preferences });
+          else if (d.top10 || d.bottom10) {
+            const next = initEmptyPrefs();
+            (d.top10 || []).forEach(t => {
+              next[t.weekend] = { ...next[t.weekend], mostService: t.service || SERVICES.NONE, mostRank: t.rank || 0 };
+            });
+            (d.bottom10 || []).forEach(b => {
+              next[b.weekend] = { ...next[b.weekend], leastService: (b.service || SERVICES.NONE), leastRank: b.rank || 0 };
+            });
+            setPrefs(next);
+          }
+        }
+        setStatus('Ready.');
+      } catch (e) {
+        console.error(e);
+        setStatus(`Load error: ${e.message}`);
+      }
+    })();
+  }, [uid]);
+
+  const setMost = useCallback((id, v) => {
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostRank: v.mostRank } }));
+  }, []);
+  const setLeast = useCallback((id, v) => {
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastRank: v.leastRank } }));
+  }, []);
+
+  // validation
+  const counts = useMemo(() => {
+    const mostRanks = [];
+    const leastRanks = [];
+    for (const p of Object.values(prefs)) {
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) mostRanks.push(p.mostRank);
+      if (p.leastRank > 0) leastRanks.push(p.leastRank);
+    }
+    const dedup = arr => arr.length === new Set(arr).size;
+    const validMost = mostRanks.length === 10 && dedup(mostRanks);
+    const validLeast = leastRanks.length === 10 && dedup(leastRanks);
+    return { validMost, validLeast, isValid: validMost && validLeast, mostCount: mostRanks.length, leastCount: leastRanks.length };
+  }, [prefs]);
+
+  // save profile immediately when changed (name/email selection)
+  const saveProfile = async (next) => {
+    setProfile(next);
+    if (!uid) return;
+    await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
+  };
+
+  const handleSubmit = async () => {
+    if (!uid || !counts.isValid || !profile.name) {
+      alert('Select your name, complete 10 Most + 10 Least with unique ranks.');
+      return;
+    }
+
+    // tidy arrays
+    const orderIdx = id => allWeekendIds.indexOf(id);
+    const top10 = [];
+    const bottom10 = [];
+    for (const [id, p] of Object.entries(prefs)) {
+      if (p.mostService !== SERVICES.NONE && p.mostRank > 0) {
+        top10.push({ weekend: id, rank: p.mostRank, service: p.mostService });
+      }
+      if (p.leastRank > 0) {
+        bottom10.push({ weekend: id, rank: p.leastRank, service: p.leastService === SERVICES.NONE ? '' : p.leastService });
+      }
+    }
+    top10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
+    bottom10.sort((a,b) => a.rank - b.rank || orderIdx(a.weekend) - orderIdx(b.weekend));
+
+    await setDoc(prefsDocRef(uid), {
+      name: profile.name,
+      email: profile.email || '',
+      preferences: prefs,
+      top10,
+      bottom10,
+      submitted: true,
+      submittedAt: serverTimestamp(),
+      lastUpdated: serverTimestamp()
+    }, { merge: true });
+
+    setSubmitted(true);
+    alert('Preferences submitted. A confirmation email will be sent shortly (if email provided).');
+
+    // call Cloud Function to send confirmation (optional if email present)
+    try {
+      if (profile.email) {
+        const sendConfirmation = httpsCallable(functions, 'sendConfirmation');
+        await sendConfirmation({ toEmail: profile.email, name: profile.name, top10, bottom10 });
+      }
+    } catch (e) {
+      console.warn('Email send failed (non-fatal):', e?.message || e);
+    }
+  };
+
+  const monthTitleFull = mk => `${MONTH_FULL[parseInt(mk,10)-1]} ${YEAR}`;
+  const jumpTo = mk => monthRefs.current[mk]?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const toggleMonth = mk => setCollapsed(prev => ({ ...prev, [mk]: !prev[mk] }));
+  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
+
+  /* ---------------- Admin CSV (query ?admin=1) ---------------- */
+  const [adminRows, setAdminRows] = useState([]);
+  const [adminLoaded, setAdminLoaded] = useState(false);
+  const loadAdmin = async () => {
+    // Grab all calendar-preferences docs across users
+    const q = query(collectionGroup(db, 'preferences'));
+    const snap = await getDocs(q);
+    const rows = [];
+    snap.forEach(d => {
+      const data = d.data();
+      if (!data || !data.top10 || !data.bottom10) return;
+      const attendee = data.name || '(unknown)';
+      const em = data.email || '';
+      const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
+      // Flatten top10/bottom10 to friendly rows
+      data.top10.forEach(t => rows.push({
+        attendee, email: em, kind: 'MOST', rank: t.rank, service: t.service, weekend: t.weekend, submittedAt
+      }));
+      data.bottom10.forEach(b => rows.push({
+        attendee, email: em, kind: 'LEAST', rank: b.rank, service: b.service || '', weekend: b.weekend, submittedAt
+      }));
+    });
+    setAdminRows(rows.sort((a,b) => (a.attendee || '').localeCompare(b.attendee || '') || (a.kind.localeCompare(b.kind)) || (a.rank - b.rank)));
+    setAdminLoaded(true);
+  };
+
+  useEffect(() => {
+    if (isAdmin && uid && !adminLoaded) loadAdmin().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, uid]);
+
+  const locked = submitted;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Sticky Jump-to-Month + Admin bar */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)',
+        borderBottom: '1px solid #e5e7eb'
+      }}>
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <strong style={{ marginRight: 8 }}>Jump:</strong>
+          {MONTH_KEYS.map((mk, i) => (
+            <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
+              {MONTH_FULL[i].slice(0,3)}
+            </button>
+          ))}
+          <span style={{ flex: 1 }} />
+          {isAdmin ? (
+            <>
+              <button onClick={() => loadAdmin()} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>
+                Refresh
+              </button>
+              <button
+                onClick={() => adminRows.length ? downloadCSV('attending-preferences.csv', adminRows) : alert('No rows loaded yet.')}
+                style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}
+              >
+                Export CSV
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => collapseAll(true)}  style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Collapse all</button>
+              <button onClick={() => collapseAll(false)} style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}>Expand all</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Header */}
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
+        <p className="text-sm text-gray-600 mb-2">
+          1) Select your name below. 2) Expand months to choose 10 <b>Most</b> (service + rank) and 10 <b>Least</b> (rank; service optional).
+          3) Submit. You’ll get a confirmation email if you enter one.
+        </p>
+        <div className="mb-3 text-sm text-indigo-800 bg-indigo-50 border-l-4 border-indigo-400 rounded-md p-3">
+          Status: {status} • Most: {counts.mostCount}/10 • Least: {counts.leastCount}/10 {locked ? '• (Locked after submission)' : ''}
+        </div>
+
+        {/* Attending identity block */}
+        <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:12 }}>
+          <label style={{ fontSize:14, fontWeight:600 }}>Your name:</label>
+          <select
+            disabled={locked}
+            value={profile.name}
+            onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220 }}
+          >
+            <option value="">— Select —</option>
+            {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+          </select>
+
+          <label style={{ fontSize:14, fontWeight:600, marginLeft:8 }}>Email (optional):</label>
+          <input
+            disabled={locked}
+            type="email"
+            value={profile.email}
+            placeholder="you@uab.edu"
+            onChange={e => saveProfile({ ...profile, email: e.target.value })}
+            style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260 }}
+          />
+        </div>
+      </div>
+
+      {/* Centered grid */}
+      <div style={{
+        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+        gap: '32px',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        justifyItems: 'stretch'
+      }}>
+        {MONTH_KEYS.map(mk => (
+          <MonthCard
+            key={mk}
+            mk={mk}
+            label={`${MONTH_FULL[parseInt(mk,10)-1]} ${YEAR}`}
+            items={months[mk]}
+            prefs={prefs}
+            onMostChange={(id, v) => setMost(id, v)}
+            onLeastChange={(id, v) => setLeast(id, v)}
+            collapsed={collapsed[mk]}
+            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
+            cardRef={monthRefs.current[mk]}
+            locked={locked}
+          />
+        ))}
+      </div>
+
+      {!isAdmin && (
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 32px' }}>
+          <button
+            className={`${counts.isValid && profile.name && !locked ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
+            disabled={!counts.isValid || !profile.name || locked}
+            onClick={handleSubmit}
+          >
+            {locked ? 'Submitted (Locked)' : 'Submit Final Preferences'}
+          </button>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div style={{ maxWidth:1120, margin:'0 auto', padding:'0 12px 32px' }}>
+          <div className="text-sm text-gray-600" style={{ marginBottom:8 }}>
+            Admin mode: loaded {adminRows.length} rows. Use “Export CSV” above.
+          </div>
+          <div style={{ overflowX:'auto', border:'1px solid #e5e7eb', borderRadius:8 }}>
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead>
+                <tr style={{ background:'#f3f4f6' }}>
+                  {['attendee','email','kind','rank','service','weekend','submittedAt'].map(h => (
+                    <th key={h} style={{ textAlign:'left', padding:8, borderBottom:'1px solid #e5e7eb' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {adminRows.map((r,i)=>(
+                  <tr key={i} style={{ borderBottom:'1px solid #f3f4f6' }}>
+                    <td style={{ padding:8 }}>{r.attendee}</td>
+                    <td style={{ padding:8 }}>{r.email}</td>
+                    <td style={{ padding:8 }}>{r.kind}</td>
+                    <td style={{ padding:8 }}>{r.rank}</td>
+                    <td style={{ padding:8 }}>{r.service}</td>
+                    <td style={{ padding:8 }}>{r.weekend}</td>
+                    <td style={{ padding:8 }}>{r.submittedAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
