@@ -735,20 +735,44 @@ export default function App() {
     <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
       {/* Sticky jump/controls */}
       <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <strong style={{ marginRight: 8 }}>Jump:</strong>
-          {MONTH_KEYS.map((mk, i) => (
-            <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
-              {MONTH_FULL[i].slice(0,3)}
-            </button>
-          ))}
-          <span style={{ flex: 1 }} />
-          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
-          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
-          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid '#059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
-          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid '#4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
-        </div>
-      </div>
+  <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+    <strong style={{ marginRight: 8 }}>Jump:</strong>
+    {MONTH_KEYS.map((mk, i) => (
+      <button
+        key={mk}
+        onClick={() => jumpTo(mk)}
+        style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}
+      >
+        {MONTH_FULL[i].slice(0,3)}
+      </button>
+    ))}
+    <span style={{ flex: 1 }} />
+    <button
+      onClick={() => collapseAll(true)}
+      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}
+    >
+      Collapse all
+    </button>
+    <button
+      onClick={() => collapseAll(false)}
+      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', fontSize: 12 }}
+    >
+      Expand all
+    </button>
+    <button
+      onClick={downloadMyCSV}
+      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color: '#fff', fontSize: 12 }}
+    >
+      Preview/My CSV
+    </button>
+    <button
+      onClick={downloadMyWord}
+      style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color: '#fff', fontSize: 12 }}
+    >
+      Preview/My Word
+    </button>
+  </div>
+</div>
 
       {/* Header + instructions */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
