@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v12.3 - clean files, fallback + admin fix";
+const __APP_VERSION__ = "v12.4 - force clean deploy";
 console.log("Scheduler build:", __APP_VERSION__);
 
 /* Firebase config: prefer injected, else global fallback, else local */
