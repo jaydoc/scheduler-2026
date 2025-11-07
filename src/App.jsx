@@ -25,7 +25,7 @@ const firebaseConfig = (() => {
   return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v10";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v11";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -165,10 +165,10 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Build availability map: weekendId -> ['RNI'] | ['COA'] | ['RNI','COA'] | [] */
+/* Availability map: weekendId -> ['RNI'] | ['COA'] | ['RNI','COA'] | [] */
 const availabilityByWeekend = (() => {
   const m = {};
-  for (const [mk, arr] of Object.entries(months)) {
+  for (const arr of Object.values(months)) {
     for (const w of arr) {
       const a = [];
       if (w.rni === null) a.push(SERVICES.RNI);
@@ -208,7 +208,23 @@ const MONTH_COLORS = [
 ];
 const MONTH_MIN_HEIGHT = 520;
 
-function RadioServiceLimited({ available, value, onChange, disabled, name, optionalLabel }) {
+/* Choice dropdown that expands up to total weekends */
+function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
+  const MAX = Math.max(10, maxN || 10);
+  return (
+    <select
+      disabled={disabled}
+      value={String(value || 0)}
+      onChange={e => onChange(parseInt(e.target.value, 10))}
+      style={{ padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
+    >
+      <option value="0">{placeholder}</option>
+      {Array.from({ length: MAX }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+    </select>
+  );
+}
+
+function RadioServiceLimited({ available, value, onChange, disabled, name }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
       {available.includes(SERVICES.RNI) && (
@@ -223,22 +239,7 @@ function RadioServiceLimited({ available, value, onChange, disabled, name, optio
           COA
         </label>
       )}
-      {optionalLabel ? <span style={{ fontSize: 12, color: '#64748b' }}>{optionalLabel}</span> : null}
     </div>
-  );
-}
-
-function ChoiceSelect({ value, onChange, disabled, placeholder }) {
-  return (
-    <select
-      disabled={disabled}
-      value={String(value || 0)}
-      onChange={e => onChange(parseInt(e.target.value, 10))}
-      style={{ padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 13 }}
-    >
-      <option value="0">{placeholder}</option>
-      {Array.from({ length: 10 }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
-    </select>
   );
 }
 
@@ -336,14 +337,15 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                           value={p.mostChoice || 0}
                           onChange={(choice) => onMostChange(w.date, { ...p, mostChoice: choice })}
                           placeholder="Most choice…"
+                          maxN={allWeekendIds.length}
                         />
                         {p.mostService !== SERVICES.NONE && p.mostChoice > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostChoice}</span>}
                       </div>
                     </div>
 
-                    {/* LEAST */}
+                    {/* LEAST: service REQUIRED */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least (choice; service optional)</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least (service + choice)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
                         <RadioServiceLimited
                           available={available}
@@ -351,15 +353,18 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                           value={available.includes(p.leastService) ? p.leastService : SERVICES.NONE}
                           onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
                           name={`least-${w.date}`}
-                          optionalLabel={available.length ? '(optional)' : undefined}
                         />
                         <ChoiceSelect
                           disabled={locked || available.length === 0}
                           value={p.leastChoice || 0}
                           onChange={(choice) => onLeastChange(w.date, { ...p, leastChoice: choice })}
                           placeholder="Least choice…"
+                          maxN={allWeekendIds.length}
                         />
-                        {p.leastChoice > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastChoice}</span>}
+                        {p.leastService === SERVICES.NONE && p.leastChoice > 0 && (
+                          <span style={chip('#fff7ed', '#b45309')}>Select a service for Least</span>
+                        )}
+                        {p.leastService !== SERVICES.NONE && p.leastChoice > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastChoice}</span>}
                       </div>
                     </div>
                   </div>
@@ -508,7 +513,7 @@ export default function App() {
     })();
   }, [uid]);
 
-  // One-time auto-fill of service when only one service is available
+  // One-time auto-fill of service when only one service is available (for both Most and Least)
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
   useEffect(() => {
     if (autoFilledOnce) return;
@@ -538,12 +543,12 @@ export default function App() {
     setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastChoice: v.leastChoice } }));
   }, []);
 
-  // counts (choices made)
+  // counts (choices made) — service required for BOTH
   const counts = useMemo(() => {
     let mostCount = 0, leastCount = 0;
     for (const p of Object.values(prefs)) {
       if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) mostCount++;
-      if (p.leastChoice > 0) leastCount++;
+      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) leastCount++;
     }
     return { mostCount, leastCount };
   }, [prefs]);
@@ -555,26 +560,33 @@ export default function App() {
     await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
   };
 
-  // assemble arrays from current prefs
+  // assemble arrays from current prefs (service required for least)
   const assembleTopBottom = useCallback(() => {
     const orderIdx = id => allWeekendIds.indexOf(id);
     const top10 = [];
     const bottom10 = [];
     for (const [id, p] of Object.entries(prefs)) {
       if (p.mostService !== SERVICES.NONE && p.mostChoice > 0) top10.push({ weekend: id, choice: p.mostChoice, service: p.mostService });
-      if (p.leastChoice > 0) bottom10.push({ weekend: id, choice: p.leastChoice, service: p.leastService === SERVICES.NONE ? '' : p.leastService });
+      if (p.leastService !== SERVICES.NONE && p.leastChoice > 0) bottom10.push({ weekend: id, choice: p.leastChoice, service: p.leastService });
     }
     top10.sort((a,b) => a.choice - b.choice || orderIdx(a.weekend) - orderIdx(b.weekend));
     bottom10.sort((a,b) => a.choice - b.choice || orderIdx(a.weekend) - orderIdx(b.weekend));
     return { top10, bottom10 };
   }, [prefs]);
 
-  // submit and lock
+  // submit and lock — validate least must have service if choice picked
   const handleSubmit = async () => {
     if (!uid || !profile.name) {
       alert('Select your name first.');
       return;
     }
+    // Validate Least requirements
+    const badLeast = Object.entries(prefs).some(([_, p]) => p.leastChoice > 0 && p.leastService === SERVICES.NONE);
+    if (badLeast) {
+      alert('For every “Least” choice, please select a service (RNI or COA).');
+      return;
+    }
+
     const { top10, bottom10 } = assembleTopBottom();
     await setDoc(prefsDocRef(uid), {
       name: profile.name,
@@ -601,8 +613,8 @@ export default function App() {
   const downloadMyCSV = () => {
     const { top10, bottom10 } = assembleTopBottom();
     const rows = [
-      ...top10.map(t => ({ attendee: profile.name, email: profile.email || '', kind: 'MOST', choice: t.choice, service: t.service, weekend: t.weekend })),
-      ...bottom10.map(b => ({ attendee: profile.name, email: profile.email || '', kind: 'LEAST', choice: b.choice, service: b.service || '', weekend: b.weekend })),
+      ...top10.map(t => ({ attendee: profile.name, email: profile.email || '', kind: 'MOST',  choice: t.choice, service: t.service, weekend: t.weekend })),
+      ...bottom10.map(b => ({ attendee: profile.name, email: profile.email || '', kind: 'LEAST', choice: b.choice, service: b.service, weekend: b.weekend })),
     ];
     const fn = submitted ? `preferences_${profile.name || 'attending'}.csv`
                          : `preferences_preview_${profile.name || 'attending'}.csv`;
@@ -689,7 +701,7 @@ export default function App() {
           </button>
           <button
             onClick={downloadMyWord}
-            style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}
+            style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid '#4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}
             title={'Download Preview/My Word'}
           >
             Preview/My Word
@@ -703,7 +715,7 @@ export default function App() {
 
         <ol style={{ margin: '8px 0 12px', paddingLeft: 20, color: '#334155', fontSize: 14, lineHeight: 1.45, listStyle: 'decimal' }}>
           <li style={{ marginBottom: 4 }}>Select your name below. You will see the number of weekends you wanted.</li>
-          <li style={{ marginBottom: 4 }}>Expand months as needed to choose as many <strong>Most</strong> (service + choice) and <strong>Least</strong> (choice; service optional) preferred weekends as you need to.</li>
+          <li style={{ marginBottom: 4 }}>Expand months as needed to choose as many <strong>Most</strong> and <strong>Least</strong> preferred weekends as you need to. For each, select <b>service</b> and <b>choice #</b>.</li>
           <li style={{ marginBottom: 4 }}>You can download a preview anytime.</li>
           <li style={{ marginBottom: 4 }}>Submit to lock your preferences once you are done.</li>
         </ol>
