@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v14.1 — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
+const __APP_VERSION__ = "v14.1stick — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
 
 /* Firebase config cascade: injected → window → local fallback */
 const LOCAL_FALLBACK = {
