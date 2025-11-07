@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v12.2 - syntax fix";
+const __APP_VERSION__ = "v12.3 - clean files, fallback + admin fix";
 console.log("Scheduler build:", __APP_VERSION__);
 
 /* Firebase config: prefer injected, else global fallback, else local */
@@ -26,7 +26,8 @@ const firebaseConfig = (() => {
   if (typeof window !== 'undefined' && window.FALLBACK_FIREBASE_CONFIG) return window.FALLBACK_FIREBASE_CONFIG;
   return LOCAL_FALLBACK;
 })();
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12.2";
+
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12.3";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -424,6 +425,106 @@ function docHtml(name, email, top10, bottom10) {
   </html>`;
 }
 
+/* Identity block */
+function AttendingIdentity({ profile, saveProfile }) {
+  return (
+    <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
+      <label style={{ fontSize:14, fontWeight:700 }}>Your name:</label>
+      <select
+        value={profile.name}
+        onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
+        style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220, fontSize:14 }}
+      >
+        <option value="">— Select —</option>
+        {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
+      </select>
+
+      <label style={{ fontSize:14, fontWeight:700, marginLeft:8 }}>Email (optional):</label>
+      <input
+        type="email"
+        value={profile.email}
+        placeholder="you@uab.edu"
+        onChange={e => saveProfile({ ...profile, email: e.target.value })}
+        style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260, fontSize:14 }}
+      />
+
+      {profile.name && (
+        <div style={{ marginTop: 8 }}>
+          {(() => {
+            const m = ATTENDING_LIMITS[profile.name];
+            return m ? (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px' }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{profile.name}</div>
+                <div style={{ fontSize: 13, color: '#334155' }}><b>Total weekends requested:</b> {m.requested}</div>
+                <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments already claimed:</b> {m.claimed}</div>
+                <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments left to be picked:</b> {m.left}</div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
+                Target numbers for “{profile.name}” are not set yet.
+              </div>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* 2×6 Grid */
+function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
+  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
+
+  const jumpTo = (mk) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [mk]: false };
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`month-${mk}`);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <div style={{
+        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
+        gap: '32px',
+        alignItems: 'stretch',
+        justifyContent: 'center',
+        justifyItems: 'stretch'
+      }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <MonthCard
+            key={mk}
+            mk={mk}
+            label={`${MONTH_FULL[i]} ${YEAR}`}
+            items={months[mk]}
+            prefs={prefs}
+            onMostChange={(id, v) => setMost(id, v)}
+            onLeastChange={(id, v) => setLeast(id, v)}
+            collapsed={collapsed[mk]}
+            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
+            cardRef={monthRefs.current[mk]}
+            locked={submitted}
+          />
+        ))}
+      </div>
+
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px', display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
+            {MONTH_FULL[i]}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* App */
 export default function App() {
   const [uid, setUid] = useState(null);
@@ -605,10 +706,9 @@ export default function App() {
   };
   const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
 
-  /* Admin CSV */
+  /* Admin CSV (single definition of isAdmin above) */
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoaded, setAdminLoaded] = useState(false);
-  const isAdmin = params.get('admin') === '1';
   const loadAdmin = async () => {
     const q = query(collectionGroup(db, 'preferences'));
     const snap = await getDocs(q);
@@ -633,6 +733,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
+      {/* Sticky jump/controls */}
       <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <strong style={{ marginRight: 8 }}>Jump:</strong>
@@ -644,11 +745,12 @@ export default function App() {
           <span style={{ flex: 1 }} />
           <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
           <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
-          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
+          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid '#059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
           <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid '#4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
         </div>
       </div>
 
+      {/* Header + instructions */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-800 mb-2">2026 Preferences (RNI & COA)</h1>
         <ol style={{ margin: '8px 0 12px', paddingLeft: 20, color: '#334155', fontSize: 14, lineHeight: 1.45, listStyle: 'decimal' }}>
@@ -666,6 +768,7 @@ export default function App() {
         <AttendingIdentity profile={profile} saveProfile={saveProfile} />
       </div>
 
+      {/* Calendar */}
       <CalendarGrid
         prefs={prefs}
         setMost={setMost}
@@ -675,6 +778,7 @@ export default function App() {
         submitted={submitted}
       />
 
+      {/* Submit */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 8px', display:'flex', gap:12, flexWrap:'wrap', alignItems:'center' }}>
         <button
           className={`${profile.name && !submitted ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'} py-3 px-6 rounded-xl font-bold`}
@@ -686,109 +790,10 @@ export default function App() {
         <span className="text-sm text-gray-600">{submitted ? 'Locked. Downloads reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}</span>
       </div>
 
+      {/* Build label */}
       <div style={{maxWidth:1120, margin:"0 auto", padding:"0 12px 24px", textAlign:"right", color:"#64748b", fontSize:12}}>
         Build: {__APP_VERSION__}
       </div>
     </div>
-  );
-}
-
-/* Identity block */
-function AttendingIdentity({ profile, saveProfile }) {
-  return (
-    <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
-      <label style={{ fontSize:14, fontWeight:700 }}>Your name:</label>
-      <select
-        value={profile.name}
-        onChange={e => saveProfile({ ...profile, name: e.target.value, email: (ATTENDINGS.find(a => a.name === e.target.value)?.email || profile.email) })}
-        style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:220, fontSize:14 }}
-      >
-        <option value="">— Select —</option>
-        {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-      </select>
-
-      <label style={{ fontSize:14, fontWeight:700, marginLeft:8 }}>Email (optional):</label>
-      <input
-        type="email"
-        value={profile.email}
-        placeholder="you@uab.edu"
-        onChange={e => saveProfile({ ...profile, email: e.target.value })}
-        style={{ padding:'6px 10px', border:'1px solid #e5e7eb', borderRadius:8, minWidth:260, fontSize:14 }}
-      />
-
-      {profile.name && (
-        <div style={{ marginTop: 8 }}>
-          {(() => {
-            const m = ATTENDING_LIMITS[profile.name];
-            return m ? (
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px' }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>{profile.name}</div>
-                <div style={{ fontSize: 13, color: '#334155' }}><b>Total weekends requested:</b> {m.requested}</div>
-                <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments already claimed:</b> {m.claimed}</div>
-                <div style={{ fontSize: 13, color: '#334155' }}><b>Assignments left to be picked:</b> {m.left}</div>
-              </div>
-            ) : (
-              <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
-                Target numbers for “{profile.name}” are not set yet.
-              </div>
-            );
-          })()}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* 2×6 Grid */
-function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
-  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
-
-  const jumpTo = (mk) => {
-    setCollapsed(prev => {
-      const next = { ...prev, [mk]: false };
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`month-${mk}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return next;
-    });
-  };
-
-  return (
-    <>
-      <div style={{
-        maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-        gap: '32px',
-        alignItems: 'stretch',
-        justifyContent: 'center',
-        justifyItems: 'stretch'
-      }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <MonthCard
-            key={mk}
-            mk={mk}
-            label={`${MONTH_FULL[i]} ${YEAR}`}
-            items={months[mk]}
-            prefs={prefs}
-            onMostChange={(id, v) => setMost(id, v)}
-            onLeastChange={(id, v) => setLeast(id, v)}
-            collapsed={collapsed[mk]}
-            onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
-            cardRef={monthRefs.current[mk]}
-            locked={submitted}
-          />
-        ))}
-      </div>
-
-      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px', display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <button key={mk} onClick={() => jumpTo(mk)} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}>
-            {MONTH_FULL[i]}
-          </button>
-        ))}
-      </div>
-    </>
   );
 }

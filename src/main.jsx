@@ -1,4 +1,4 @@
-// --- Firebase fallback guard (must come BEFORE imports) ---
+// Guard: ensure the global exists even if someone serves the module without index.html
 if (typeof window !== 'undefined' && !window.FALLBACK_FIREBASE_CONFIG) {
   window.FALLBACK_FIREBASE_CONFIG = {
     apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
@@ -11,7 +11,6 @@ if (typeof window !== 'undefined' && !window.FALLBACK_FIREBASE_CONFIG) {
   };
 }
 
-// Now we import react + app normally:
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
