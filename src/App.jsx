@@ -25,7 +25,8 @@ const firebaseConfig = (() => {
   return FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v11";
+/* bump to force redeploy/cache-bust */
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v12";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -321,7 +322,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 
                 {!fullyAssigned ? (
                   <div style={{ display: 'grid', gap: 10, opacity: locked ? 0.6 : 1, pointerEvents: locked ? 'none' : 'auto' }}>
-                    {/* MOST */}
+                    {/* MOST (service REQUIRED for dropdown to enable) */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Most (service + choice)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
@@ -333,17 +334,26 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                           name={`most-${w.date}`}
                         />
                         <ChoiceSelect
-                          disabled={locked || available.length === 0}
+                          disabled={
+                            locked ||
+                            available.length === 0 ||
+                            (p.mostService === SERVICES.NONE)
+                          }
                           value={p.mostChoice || 0}
                           onChange={(choice) => onMostChange(w.date, { ...p, mostChoice: choice })}
                           placeholder="Most choice…"
                           maxN={allWeekendIds.length}
                         />
-                        {p.mostService !== SERVICES.NONE && p.mostChoice > 0 && <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostChoice}</span>}
+                        {p.mostService === SERVICES.NONE && p.mostChoice > 0 && (
+                          <span style={chip('#fff7ed', '#b45309')}>Pick a service for Most</span>
+                        )}
+                        {p.mostService !== SERVICES.NONE && p.mostChoice > 0 && (
+                          <span style={chip('#d1fae5', '#10b981')}>Most #{p.mostChoice}</span>
+                        )}
                       </div>
                     </div>
 
-                    {/* LEAST: service REQUIRED */}
+                    {/* LEAST (service REQUIRED) */}
                     <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: 8 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least (service + choice)</div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
@@ -355,16 +365,22 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
                           name={`least-${w.date}`}
                         />
                         <ChoiceSelect
-                          disabled={locked || available.length === 0}
+                          disabled={
+                            locked ||
+                            available.length === 0 ||
+                            (p.leastService === SERVICES.NONE)
+                          }
                           value={p.leastChoice || 0}
                           onChange={(choice) => onLeastChange(w.date, { ...p, leastChoice: choice })}
                           placeholder="Least choice…"
                           maxN={allWeekendIds.length}
                         />
                         {p.leastService === SERVICES.NONE && p.leastChoice > 0 && (
-                          <span style={chip('#fff7ed', '#b45309')}>Select a service for Least</span>
+                          <span style={chip('#fff7ed', '#b45309')}>Pick a service for Least</span>
                         )}
-                        {p.leastService !== SERVICES.NONE && p.leastChoice > 0 && <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastChoice}</span>}
+                        {p.leastService !== SERVICES.NONE && p.leastChoice > 0 && (
+                          <span style={chip('#ffe4e6', '#e11d48')}>Least #{p.leastChoice}</span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -581,7 +597,9 @@ export default function App() {
       return;
     }
     // Validate Least requirements
-    const badLeast = Object.entries(prefs).some(([_, p]) => p.leastChoice > 0 && p.leastService === SERVICES.NONE);
+    const badLeast = Object.entries(prefs).some(
+      ([_, p]) => p.leastChoice > 0 && p.leastService === SERVICES.NONE
+    );
     if (badLeast) {
       alert('For every “Least” choice, please select a service (RNI or COA).');
       return;
