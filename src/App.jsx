@@ -4,10 +4,9 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v14.0 - polish + summary + admin exports + draft scheduler + firebase badge";
-console.log("Scheduler build:", __APP_VERSION__);
+const __APP_VERSION__ = "v14.0 — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
 
-/* Firebase config: prefer injected, else global fallback, else local */
+/* Firebase config cascade: injected → window → local fallback */
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
   authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -18,24 +17,22 @@ const LOCAL_FALLBACK = {
   measurementId: "G-TJXCM9P7W2"
 };
 const firebaseConfig = (() => {
-  try {
-    if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-      return JSON.parse(__firebase_config);
-    }
-  } catch {}
+  try { if (typeof __firebase_config !== 'undefined' && __firebase_config) return JSON.parse(__firebase_config); } catch {}
   if (typeof window !== 'undefined' && window.FALLBACK_FIREBASE_CONFIG) return window.FALLBACK_FIREBASE_CONFIG;
   return LOCAL_FALLBACK;
 })();
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v14";
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v13.0";
-const YEAR = 2026;
-const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
-
+/* Firebase */
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-/* Attendings */
+/* Constants */
+const YEAR = 2026;
+const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
+
+/* Attendings (your list with emails) */
 const ATTENDINGS = [
   { name: "Ambal",   email: "nambalav@uab.edu" },
   { name: "Arora",   email: "nitinarora@uabmc.edu" },
@@ -57,6 +54,7 @@ const ATTENDINGS = [
   { name: "Vivian",  email: "vvalcarceluaces@uabmc.edu" },
 ];
 
+/* Requested/claimed/left panel data */
 const ATTENDING_LIMITS = {
   "Ambal":     { requested: 6,  claimed: 4, left: 2 },
   "Schuyler":  { requested: 3,  claimed: 2, left: 1 },
@@ -162,7 +160,7 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Availability map */
+/* Availability per weekend */
 const availabilityByWeekend = (() => {
   const m = {};
   for (const arr of Object.values(months)) {
@@ -179,13 +177,10 @@ const availabilityByWeekend = (() => {
 /* Helpers */
 function initEmptyPrefs() {
   const base = {};
-  allWeekendIds.forEach(id => {
-    base[id] = { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
-  });
+  allWeekendIds.forEach(id => { base[id] = { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 }; });
   return base;
 }
 const chip = (bg, fg) => ({ padding: '2px 8px', borderRadius: 10, background: bg, color: fg, fontSize: 12, border: `1px solid ${fg}22` });
-
 const MONTH_COLORS = [
   { bg: '#fde68a', fg: '#1f2937', border: '#f59e0b' },
   { bg: '#bfdbfe', fg: '#1f2937', border: '#3b82f6' },
@@ -202,11 +197,7 @@ const MONTH_COLORS = [
 ];
 const MONTH_MIN_HEIGHT = 520;
 
-/* Visual constants */
-const BASE_FONT_SIZE = 16;
-const ASSIGNED_NAME_STYLE = { fontWeight: 800, color: '#0f172a', fontSize: 16 };
-
-/* Choice select */
+/* Select for "choice #" with auto max */
 function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   const MAX = Math.max(10, maxN || 10);
   return (
@@ -224,7 +215,7 @@ function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   );
 }
 
-/* Limited radio */
+/* Limited radio: only open services appear */
 function RadioServiceLimited({ available, value, onChange, disabled, name }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -276,7 +267,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
           textAlign: 'center',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
+          justifyContent: 'space-between',
           gap: 8,
           cursor: 'pointer'
         }}
@@ -306,10 +297,10 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 
                 <div style={{ fontSize: 13, color: '#334155', marginBottom: 8, lineHeight: 1.25 }}>
                   <span style={{ background: rniOpen ? '#dbeafe' : '#e5e7eb', color: rniOpen ? '#1e3a8a' : '#111827', borderRadius: 6, padding: '3px 8px', marginRight: 8 }}>
-                    RNI: {rniOpen ? 'OPEN' : <span style={ASSIGNED_NAME_STYLE}>{w.rni}</span>}
+                    RNI: {rniOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.rni}</strong>}
                   </span>
                   <span style={{ background: coaOpen ? '#e0e7ff' : '#e5e7eb', color: coaOpen ? '#3730a3' : '#111827', borderRadius: 6, padding: '3px 8px' }}>
-                    COA: {coaOpen ? 'OPEN' : <span style={ASSIGNED_NAME_STYLE}>{w.coa}</span>}
+                    COA: {coaOpen ? 'OPEN' : <strong style={{ fontSize: 15 }}>{w.coa}</strong>}
                   </span>
                 </div>
 
@@ -381,7 +372,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
   );
 }
 
-/* CSV/Word helpers */
+/* Export helpers */
 function toCSV(rows) {
   const headers = Object.keys(rows[0] || {});
   const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -391,10 +382,8 @@ function toCSV(rows) {
 function downloadBlob(filename, mime, content) {
   const blob = new Blob([content], { type: mime });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  const a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 }
 function downloadCSV(filename, rows) {
   if (!rows.length) { alert('Nothing to export.'); return; }
@@ -429,7 +418,7 @@ function docHtml(name, email, top10, bottom10) {
   </html>`;
 }
 
-/* Identity block */
+/* Attending identity block */
 function AttendingIdentity({ profile, saveProfile }) {
   return (
     <div style={{ display:'flex', gap:12, alignItems:'center', flexWrap:'wrap', marginBottom:8 }}>
@@ -475,7 +464,7 @@ function AttendingIdentity({ profile, saveProfile }) {
   );
 }
 
-/* 2×6 Grid */
+/* 2×6 grid */
 function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
   const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
 
@@ -529,16 +518,159 @@ function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submi
   );
 }
 
+/* Optional Reorder Mode (drag to rank) */
+function ReorderPanel({ prefs, setPrefs, submitted }) {
+  const [mode, setMode] = useState(false);
+
+  const { most, least } = useMemo(() => {
+    const list = Object.entries(prefs);
+    const m = list
+      .filter(([_, p]) => p.mostService !== SERVICES.NONE && p.mostChoice > 0)
+      .map(([id, p]) => ({ id, label: id, service: p.mostService, choice: p.mostChoice }))
+      .sort((a,b) => a.choice - b.choice);
+    const l = list
+      .filter(([_, p]) => p.leastService !== SERVICES.NONE && p.leastChoice > 0)
+      .map(([id, p]) => ({ id, label: id, service: p.leastService, choice: p.leastChoice }))
+      .sort((a,b) => a.choice - b.choice);
+    return { most: m, least: l };
+  }, [prefs]);
+
+  const [dragState, setDragState] = useState({ list: 'most', from: -1 });
+
+  const applyOrder = (which, arr) => {
+    setPrefs(prev => {
+      const next = { ...prev };
+      arr.forEach((item, idx) => {
+        const p = next[item.id] || {};
+        if (which === 'most') next[item.id] = { ...p, mostChoice: idx + 1 };
+        else next[item.id] = { ...p, leastChoice: idx + 1 };
+      });
+      return next;
+    });
+  };
+
+  const List = ({ which, items }) => (
+    <div style={{ flex: 1, minWidth: 260, border: '1px dashed #cbd5e1', borderRadius: 10, padding: 8, background: '#f8fafc' }}>
+      <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 8 }}>{which === 'most' ? 'Most (drag to reorder)' : 'Least (drag to reorder)'}</div>
+      {(items.length === 0) && <div style={{ fontSize: 12, color: '#64748b' }}>Nothing to reorder yet.</div>}
+      {items.map((it, idx) => (
+        <div
+          key={it.id}
+          draggable={!submitted}
+          onDragStart={() => setDragState({ list: which, from: idx })}
+          onDragOver={e => e.preventDefault()}
+          onDrop={() => {
+            if (dragState.list !== which) return;
+            const arr = items.slice();
+            const [moved] = arr.splice(dragState.from, 1);
+            arr.splice(idx, 0, moved);
+            applyOrder(which, arr);
+          }}
+          style={{
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: 8,
+            padding: '6px 8px',
+            marginBottom: 6,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            cursor: submitted ? 'not-allowed' : 'grab'
+          }}
+          title={submitted ? 'Locked after submission' : 'Drag to reorder'}
+        >
+          <div style={{ fontSize: 12, color: '#0f172a' }}>
+            <b>#{idx + 1}</b> • {it.service} • {it.id}
+          </div>
+          <div style={{ fontSize: 16, opacity: 0.6 }}>↕</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <label style={{ fontWeight: 800, fontSize: 14 }}>Reorder Mode:</label>
+        <input type="checkbox" checked={mode} onChange={e => setMode(e.target.checked)} disabled={submitted} />
+        <span style={{ fontSize: 12, color: '#475569' }}>{submitted ? 'Locked after submission' : 'Drag items to change choice #'}</span>
+      </div>
+      {mode && (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <List which="most" items={most} />
+          <List which="least" items={least} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* Admin Heatmap — demand score */
+function AdminHeatmap({ adminRows }) {
+  // Score weekends by + (11 - Most choice) and - (11 - Least choice)
+  const scoreByWeekend = useMemo(() => {
+    const m = {};
+    adminRows.forEach(r => {
+      const base = 11 - Number(r.choice || 0);
+      if (!m[r.weekend]) m[r.weekend] = 0;
+      if (r.kind === 'MOST') m[r.weekend] += base;
+      else m[r.weekend] -= base;
+    });
+    return m;
+  }, [adminRows]);
+
+  const box = (score) => {
+    const s = score || 0;
+    // green for positive demand, red for negative, neutral gray
+    let bg = '#f1f5f9', color = '#0f172a';
+    if (s > 0) { bg = '#dcfce7'; color = '#065f46'; }
+    if (s >= 8) { bg = '#bbf7d0'; color = '#065f46'; }
+    if (s <= -1) { bg = '#fee2e2'; color = '#7f1d1d'; }
+    if (s <= -8) { bg = '#fecaca'; color = '#7f1d1d'; }
+    return { background: bg, color, border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px', fontSize: 12 };
+  };
+
+  return (
+    <div style={{ maxWidth: 1120, margin: '0 auto', padding: '12px 12px 18px' }}>
+      <div style={{ fontWeight: 800, marginBottom: 8 }}>Admin: Weekend Demand Heatmap</div>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: 10
+      }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <div key={mk} style={{ border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
+            <div style={{ padding: 8, fontWeight: 800, borderBottom: '1px solid #e5e7eb', background: '#f8fafc' }}>
+              {MONTH_FULL[i]} {YEAR}
+            </div>
+            <div style={{ padding: 8, display: 'grid', gap: 6 }}>
+              {months[mk].map(w => (
+                <div key={w.date} style={box(scoreByWeekend[w.date])}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{w.date}</span>
+                    <b>{scoreByWeekend[w.date] || 0}</b>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* App */
 export default function App() {
   const [uid, setUid] = useState(null);
   const [status, setStatus] = useState('Authenticating…');
+  const [firebaseStatus, setFirebaseStatus] = useState('connecting');
   const [prefs, setPrefs] = useState(initEmptyPrefs());
   const [profile, setProfile] = useState({ name: '', email: '' });
   const [submitted, setSubmitted] = useState(false);
-  const [firebaseStatus, setFirebaseStatus] = useState('connecting');
 
   const [collapsed, setCollapsed] = useState(() => Object.fromEntries(MONTH_KEYS.map(mk => [mk, true])));
+
   const params = new URLSearchParams(window.location.search);
   const isAdmin = params.get('admin') === '1';
 
@@ -555,6 +687,7 @@ export default function App() {
       } catch (e) {
         console.error(e);
         setStatus(`Auth error: ${e.message}`);
+        setFirebaseStatus('error');
       }
     })();
   }, []);
@@ -597,26 +730,23 @@ export default function App() {
           }
         }
         setStatus('Ready.');
+        setFirebaseStatus('connected');
       } catch (e) {
         console.error(e);
         setStatus(`Load error: ${e.message}`);
+        setFirebaseStatus('error');
       }
     })();
   }, [uid]);
+
+  /* connectivity check (already set to connected above on success) */
   useEffect(() => {
-  if (!uid) return;
-
-  (async () => {
-    try {
-      const snap = await getDoc(prefsDocRef(uid)); // very lightweight
-      if (snap) setFirebaseStatus('connected');
-    } catch (err) {
-      console.error("Firebase connectivity check failed:", err);
-      setFirebaseStatus('error');
-    }
-  })();
-}, [uid]);
-
+    if (!uid) return;
+    (async () => {
+      try { await getDoc(prefsDocRef(uid)); setFirebaseStatus('connected'); }
+      catch (err) { console.error("Firebase connectivity check failed:", err); setFirebaseStatus('error'); }
+    })();
+  }, [uid]);
 
   /* one-time auto-fill for single-service weekends */
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
@@ -648,11 +778,12 @@ export default function App() {
 
   const counts = useMemo(() => {
     let mostCount = 0, leastCount = 0;
+    let mostRNI = 0, mostCOA = 0, leastRNI = 0, leastCOA = 0;
     for (const p of Object.values(prefs)) {
-      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) mostCount++;
-      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) leastCount++;
+      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) { mostCount++; if (p.mostService === SERVICES.RNI) mostRNI++; else mostCOA++; }
+      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) { leastCount++; if (p.leastService === SERVICES.RNI) leastRNI++; else leastCOA++; }
     }
-    return { mostCount, leastCount };
+    return { mostCount, leastCount, mostRNI, mostCOA, leastRNI, leastCOA };
   }, [prefs]);
 
   const saveProfile = async (next) => {
@@ -672,22 +803,6 @@ export default function App() {
     top10.sort((a,b) => a.choice - b.choice || orderIdx(a.weekend) - orderIdx(b.weekend));
     bottom10.sort((a,b) => a.choice - b.choice || orderIdx(a.weekend) - orderIdx(b.weekend));
     return { top10, bottom10 };
-  }, [prefs]);
-
-  /* Summary + balance */
-  const computeSummary = useCallback(() => {
-    let mostRNI = 0, mostCOA = 0, leastRNI = 0, leastCOA = 0, mostTotal = 0, leastTotal = 0;
-    for (const p of Object.values(prefs)) {
-      if (p.mostChoice > 0 && p.mostService !== SERVICES.NONE) {
-        mostTotal++; if (p.mostService === SERVICES.RNI) mostRNI++; else mostCOA++;
-      }
-      if (p.leastChoice > 0 && p.leastService !== SERVICES.NONE) {
-        leastTotal++; if (p.leastService === SERVICES.RNI) leastRNI++; else leastCOA++;
-      }
-    }
-    const mostBalance = mostTotal ? Math.round((mostRNI / mostTotal) * 100) : 0;
-    const leastBalance = leastTotal ? Math.round((leastRNI / leastTotal) * 100) : 0;
-    return { mostRNI, mostCOA, leastRNI, leastCOA, mostTotal, leastTotal, mostBalance, leastBalance };
   }, [prefs]);
 
   const handleSubmit = async () => {
@@ -710,7 +825,7 @@ export default function App() {
       lastUpdated: serverTimestamp()
     }, { merge: true });
     setSubmitted(true);
-    alert('Preferences submitted. Downloads now reflect your final locked choices.');
+    alert('Preferences submitted. Your view is now locked.');
   };
 
   const downloadMyCSV = () => {
@@ -729,7 +844,9 @@ export default function App() {
     downloadBlob(fn, 'application/msword', html);
   };
 
-  /* Admin CSV */
+  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
+
+  /* Admin CSV export */
   const [adminRows, setAdminRows] = useState([]);
   const [adminLoaded, setAdminLoaded] = useState(false);
   const loadAdmin = async () => {
@@ -750,160 +867,43 @@ export default function App() {
     setAdminRows(rows);
     setAdminLoaded(true);
   };
-  useEffect(() => {
-    if (isAdmin && uid && !adminLoaded) { loadAdmin().catch(console.error); }
-  }, [isAdmin, uid, adminLoaded]);
+  useEffect(() => { if (isAdmin && uid && !adminLoaded) { loadAdmin().catch(console.error); } }, [isAdmin, uid, adminLoaded]);
 
-  const adminDownloadCSV = async () => {
-    if (!isAdmin) return;
-    if (!adminLoaded) await loadAdmin();
-    if (!adminRows.length) { alert('No admin rows to export.'); return; }
-    downloadCSV(`admin_preferences_${new Date().toISOString().slice(0,10)}.csv`, adminRows);
-  };
-
-  /* Draft scheduler (admin) */
-  const generateDraftScheduleCSV = async () => {
-    if (!isAdmin) return;
-    if (!adminLoaded) await loadAdmin();
-    if (!adminRows.length) { alert('No data loaded.'); return; }
-
-    const mostByService = {}; // weekend|service -> { name -> rank }
-    const leastByService = {};
-    const keyOf = (weekend, service) => `${weekend}|${service}`;
-    const ensure = (obj, k) => (obj[k] || (obj[k] = {}));
-
-    adminRows.forEach(r => {
-      const service = r.service;
-      if (!service || service === SERVICES.NONE) return;
-      const k = keyOf(r.weekend, service);
-      if (r.kind === 'MOST') {
-        ensure(mostByService, k)[r.attendee] = Number(r.choice) || 999;
-      } else if (r.kind === 'LEAST') {
-        ensure(leastByService, k)[r.attendee] = Number(r.choice) || 999;
-      }
-    });
-
-    const softCap = (name) => {
-      const lim = ATTENDING_LIMITS[name];
-      if (!lim) return Infinity;
-      if (typeof lim.left === 'number' && lim.left >= 0) return Math.max(0, lim.left);
-      if (typeof lim.requested === 'number' && lim.requested > 0) return lim.requested;
-      return Infinity;
-    };
-
-    const openSlots = [];
-    for (const arr of Object.values(months)) {
-      arr.forEach(w => {
-        if (w.rni === null) openSlots.push({ weekend: w.date, service: SERVICES.RNI });
-        if (w.coa === null) openSlots.push({ weekend: w.date, service: SERVICES.COA });
-      });
-    }
-
-    const assignedCount = {};
-    const bothOnSameWeekend = new Map();
-    const rows = [];
-
-    const scoreFor = (name, weekend, service) => {
-      const k = keyOf(weekend, service);
-      const mostRank = (mostByService[k]?.[name] ?? 999);
-      const leastRank = (leastByService[k]?.[name] ?? 999);
-      let s = (100 - mostRank) - (100 - leastRank); // reward Most, penalize Least
-      const cap = softCap(name);
-      const used = assignedCount[name] || 0;
-      if (used >= cap) s -= 1000;
-      else s -= used * 2;
-      return s;
-    };
-
-    for (const slot of openSlots) {
-      const already = bothOnSameWeekend.get(slot.weekend) || new Set();
-      const candidates = ATTENDINGS.map(a => a.name).filter(n => softCap(n) > 0 && !already.has(n));
-
-      let best = null;
-      let bestScore = -Infinity;
-      for (const name of candidates) {
-        const s = scoreFor(name, slot.weekend, slot.service);
-        if (s > bestScore) { bestScore = s; best = name; }
-      }
-
-      if (best && bestScore > -500) {
-        assignedCount[best] = (assignedCount[best] || 0) + 1;
-        const set = bothOnSameWeekend.get(slot.weekend) || new Set();
-        set.add(best); bothOnSameWeekend.set(slot.weekend, set);
-        rows.push({ weekend: slot.weekend, service: slot.service, assigned: best, score: bestScore });
-      } else {
-        rows.push({ weekend: slot.weekend, service: slot.service, assigned: '(unfilled)', score: '' });
-      }
-    }
-
-    rows.sort((a,b) => (a.weekend.localeCompare(b.weekend) || a.service.localeCompare(b.service)));
-    downloadCSV(`draft_schedule_${new Date().toISOString().slice(0,10)}.csv`, rows);
-  };
-
-  /* Jump + collapse controls for header */
-  const jumpTo = (mk) => {
-    setCollapsed(prev => {
-      const next = { ...prev, [mk]: false };
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`month-${mk}`);
-        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return next;
-    });
-  };
-  const collapseAll = val => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
+  /* Balance hint */
+  const balanceHint = (() => {
+    const total = counts.mostRNI + counts.mostCOA;
+    if (total < 4) return null;
+    const ratio = counts.mostRNI / Math.max(1, total);
+    if (ratio < 0.4) return { type: 'warn', msg: `Your “Most” list is heavily COA-skewed (${counts.mostCOA}/${total}). Try adding some RNI for balance.` };
+    if (ratio > 0.6) return { type: 'warn', msg: `Your “Most” list is heavily RNI-skewed (${counts.mostRNI}/${total}). Try adding some COA for balance.` };
+    return { type: 'ok', msg: `Good balance on “Most”: RNI ${counts.mostRNI} • COA ${counts.mostCOA}.` };
+  })();
 
   return (
-    <div className="min-h-screen bg-gray-50" style={{ fontSize: BASE_FONT_SIZE }}>
-      {/* Sticky jump/controls */}
+    <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
+      {/* Sticky header with Jump + Firebase badge inline */}
       <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <strong style={{ marginRight: 8 }}>Jump:</strong>
           {MONTH_KEYS.map((mk, i) => (
-            <button
-              key={mk}
-              onClick={() => jumpTo(mk)}
-              style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12 }}
-            >
+            <a key={mk}
+               onClick={(e) => { e.preventDefault(); setCollapsed(c => ({ ...c, [mk]: false })); const el = document.getElementById(`month-${mk}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+               href={`#month-${mk}`}
+               style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration: 'none', color: '#0f172a' }}>
               {MONTH_FULL[i].slice(0,3)}
-            </button>
+            </a>
           ))}
           <span style={{ flex: 1 }} />
-          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
-          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
-          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
-          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
-          {isAdmin && (
-            <>
-              <button
-                onClick={adminDownloadCSV}
-                style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #334155', background: '#0f172a', color: '#fff', fontSize: 12 }}
-                title="Exports all attendees’ preferences (admin)"
-              >
-                Admin CSV
-              </button>
-              <button
-                onClick={generateDraftScheduleCSV}
-                style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid #7c3aed', background: '#8b5cf6', color: '#fff', fontSize: 12 }}
-                title="Generate a first-pass schedule for open slots (admin)"
-              >
-                Draft Schedule CSV
-              </button>
-            </>
-          )}
+          <span style={{ fontSize: 12, fontWeight: 700 }}>
+            {firebaseStatus === 'connected' && (<span style={{ color: '#059669' }}>● Firebase: Connected</span>)}
+            {firebaseStatus === 'connecting' && (<span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>)}
+            {firebaseStatus === 'error' && (<span style={{ color: '#dc2626' }}>● Firebase: Error</span>)}
+          </span>
+          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
+          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
+          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #059669", background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
+          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #4f46e5", background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
         </div>
-		<div style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700 }}>
-  {firebaseStatus === 'connected' && (
-    <span style={{ color: '#059669' }}>● Firebase: Connected</span>
-  )}
-  {firebaseStatus === 'connecting' && (
-    <span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>
-  )}
-  {firebaseStatus === 'error' && (
-    <span style={{ color: '#dc2626' }}>● Firebase: Error</span>
-  )}
-</div>
-
       </div>
 
       {/* Header + instructions */}
@@ -922,39 +922,26 @@ export default function App() {
           Status: {status} • Most choices: {counts.mostCount} • Least choices: {counts.leastCount} {submitted ? '• (Locked after submission)' : ''}
         </div>
         <AttendingIdentity profile={profile} saveProfile={saveProfile} />
-
-        {/* Summary panel and balance warnings */}
-        {(() => {
-          const s = computeSummary();
-          const limits = profile.name ? ATTENDING_LIMITS[profile.name] : null;
-          const want = limits?.requested ?? null;
-          const imbalancedMost = s.mostTotal >= 4 && (s.mostBalance <= 40 || s.mostBalance >= 60);
-          const underTarget = want !== null && s.mostTotal < want;
-          return (
-            <div style={{ margin: '8px 0 16px', display: 'grid', gap: 8 }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12, padding: '10px 12px' }}>
-                <strong style={{ color: '#0f172a' }}>Your summary</strong>
-                <span style={{ fontSize: 13, color: '#334155' }}>Most: RNI {s.mostRNI} • COA {s.mostCOA} • Total {s.mostTotal}</span>
-                <span style={{ fontSize: 13, color: '#334155' }}>Least: RNI {s.leastRNI} • COA {s.leastCOA} • Total {s.leastTotal}</span>
-                {want !== null && <span style={{ fontSize: 13, color: '#334155' }}>Target weekends to rank (Most): {want}</span>}
-                <span style={{ flex: 1 }} />
-                <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #059669', background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
-                <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border: '1px solid #4f46e5', background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
-              </div>
-              {imbalancedMost && (
-                <div style={{ fontSize: 13, color: '#7c2d12', background: '#ffedd5', border: '1px solid #fed7aa', borderRadius: 10, padding: '8px 10px' }}>
-                  Tip: Your <b>Most</b> list is skewed ({s.mostBalance}% RNI). Aim for a more balanced RNI/COA spread if possible.
-                </div>
-              )}
-              {underTarget && (
-                <div style={{ fontSize: 13, color: '#084c61', background: '#e0f2fe', border: '1px solid #bae6fd', borderRadius: 10, padding: '8px 10px' }}>
-                  You’ve selected fewer <b>Most</b> weekends than your target ({s.mostTotal} of {want}). Adding more increases the chance you’ll receive preferred weekends.
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {balanceHint && (
+          <div style={{
+            fontSize: 12,
+            color: balanceHint.type === 'ok' ? '#065f46' : '#7c2d12',
+            background: balanceHint.type === 'ok' ? '#ecfdf5' : '#ffedd5',
+            border: '1px solid #e2e8f0',
+            padding: '8px 10px', borderRadius: 10, marginTop: 6
+          }}>
+            {balanceHint.msg}
+          </div>
+        )}
+        {submitted && (
+          <div style={{ marginTop: 10, fontSize: 12, color: '#991b1b', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 10, padding: '8px 10px' }}>
+            Your submission is locked. The calendar below is read-only.
+          </div>
+        )}
       </div>
+
+      {/* Optional Reorder Mode (drag) */}
+      <ReorderPanel prefs={prefs} setPrefs={setPrefs} submitted={submitted} />
 
       {/* Calendar */}
       <CalendarGrid
@@ -977,6 +964,28 @@ export default function App() {
         </button>
         <span className="text-sm text-gray-600">{submitted ? 'Locked. Downloads reflect your final choices.' : 'Tip: use Preview CSV/Word above to save your current selections.'}</span>
       </div>
+
+      {/* Admin-only heatmap + CSV controls */}
+      {isAdmin && (
+        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '0 12px 24px' }}>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom: 8 }}>
+            <button
+              onClick={() => {
+                if (!adminLoaded) return;
+                const fn = `admin_all_prefs_${new Date().toISOString().slice(0,10)}.csv`;
+                downloadCSV(fn, adminRows);
+              }}
+              style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #334155", background:'#1f2937', color:'#fff', fontSize:12 }}
+              disabled={!adminLoaded}
+              title="Exports rows from all users (Most/Least)"
+            >
+              Admin CSV (All Users)
+            </button>
+            {!adminLoaded && <span style={{ fontSize: 12, color:'#64748b' }}>Loading admin data…</span>}
+          </div>
+          {adminLoaded && <AdminHeatmap adminRows={adminRows} />}
+        </div>
+      )}
 
       {/* Build label */}
       <div style={{maxWidth:1120, margin:"0 auto", padding:"0 12px 24px", textAlign:"right", color:"#64748b", fontSize:12}}>
