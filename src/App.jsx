@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v13.0 — QuickAdd + RankBoard + DragBuckets + CommandPalette";
+const __APP_VERSION__ = "v13.1 — availability guards + Month DD labels";
 console.log("Scheduler build:", __APP_VERSION__);
 
 /* Firebase config: prefer injected, else global fallback, else local */
@@ -27,7 +27,7 @@ const firebaseConfig = (() => {
   return LOCAL_FALLBACK;
 })();
 
-const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v13.0";
+const appId = typeof __app_id !== 'undefined' ? __app_id : "attending-scheduler-v13.1";
 const YEAR = 2026;
 const SERVICES = { RNI: 'RNI', COA: 'COA', NONE: 'none' };
 
@@ -78,7 +78,7 @@ const ATTENDING_LIMITS = {
   "Carlo":     { requested: 5,  claimed: 5, left: 0 },
 };
 
-/* Calendar (Saturdays only; Fri/Sun just displayed textually where needed) */
+/* Calendar (Saturdays) */
 const months = {
   '01': [
     { day: '10', date: '2026-01-10', rni: null, coa: null },
@@ -162,7 +162,7 @@ const MONTH_KEYS = ['01','02','03','04','05','06','07','08','09','10','11','12']
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const allWeekendIds = Object.values(months).flat().map(w => w.date);
 
-/* Availability by weekend */
+/* Availability */
 const availabilityByWeekend = (() => {
   const m = {};
   for (const arr of Object.values(months)) {
@@ -175,6 +175,15 @@ const availabilityByWeekend = (() => {
   }
   return m;
 })();
+
+/* Display date as "Month DD" */
+function displayDate(id) {
+  // id like "2026-07-18"
+  const mm = id.slice(5,7);
+  const dd = String(parseInt(id.slice(8,10), 10)); // no leading zero
+  const name = MONTH_FULL[parseInt(mm,10)-1] || '';
+  return `${name} ${dd}`;
+}
 
 /* Helpers */
 function initEmptyPrefs() {
@@ -202,7 +211,7 @@ const MONTH_COLORS = [
 ];
 const MONTH_MIN_HEIGHT = 520;
 
-/* Choice select (auto-extends) */
+/* Choice select */
 function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   const MAX = Math.max(10, maxN || 10);
   return (
@@ -220,7 +229,7 @@ function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   );
 }
 
-/* Limited radio for available service(s) */
+/* Limited radio shows only available services */
 function RadioServiceLimited({ available, value, onChange, disabled, name }) {
   return (
     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -241,13 +250,12 @@ function RadioServiceLimited({ available, value, onChange, disabled, name }) {
 }
 
 /* Month card */
-function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, cardRef, locked }) {
+function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, collapsed, onToggle, locked }) {
   const idx = parseInt(mk, 10) - 1;
   const color = MONTH_COLORS[idx] ?? { bg: '#eeeeee', fg: '#111111', border: '#cccccc' };
 
   return (
     <div
-      ref={cardRef}
       id={`month-${mk}`}
       style={{
         scrollMarginTop: 96,
@@ -296,7 +304,7 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
             return (
               <div key={w.date} style={{ padding: 12, borderRadius: 12, border: '1px solid #e5e7eb', background: fullyAssigned ? '#f9fafb' : '#fff', opacity: fullyAssigned ? 0.8 : 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{w.day}</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{displayDate(w.date)}</div>
                   {w.detail && <div style={chip('#fff7ed', '#c2410c')}>{w.detail}</div>}
                 </div>
 
@@ -379,8 +387,6 @@ function MonthCard({ mk, label, items, prefs, onMostChange, onLeastChange, colla
 
 /* 2×6 Grid */
 function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submitted }) {
-  const monthRefs = useRef(Object.fromEntries(MONTH_KEYS.map(mk => [mk, React.createRef()])));
-
   const jumpTo = (mk) => {
     setCollapsed(prev => {
       const next = { ...prev, [mk]: false };
@@ -414,7 +420,6 @@ function CalendarGrid({ prefs, setMost, setLeast, collapsed, setCollapsed, submi
             onLeastChange={(id, v) => setLeast(id, v)}
             collapsed={collapsed[mk]}
             onToggle={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
-            cardRef={monthRefs.current[mk]}
             locked={submitted}
           />
         ))}
@@ -462,7 +467,7 @@ function docHtml(name, email, top10, bottom10) {
       <td>${esc(kind)}</td>
       <td>${esc(r.choice)}</td>
       <td>${esc(r.service || '')}</td>
-      <td>${esc(r.weekend)}</td>
+      <td>${esc(displayDate(r.weekend))}</td>
     </tr>`;
   return `
   <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -472,7 +477,7 @@ function docHtml(name, email, top10, bottom10) {
     <p><b>Name:</b> ${esc(name || '')} &nbsp; <b>Email:</b> ${esc(email || '')}</p>
     <table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
       <thead style="background:#f3f4f6">
-        <tr><th>Kind</th><th>Choice #</th><th>Service</th><th>Weekend (Sat date)</th></tr>
+        <tr><th>Kind</th><th>Choice #</th><th>Service</th><th>Weekend (Saturday)</th></tr>
       </thead>
       <tbody>
         ${top10.map(r => row('MOST', r)).join('')}
@@ -531,10 +536,10 @@ function AttendingIdentity({ profile, saveProfile }) {
 }
 
 /* Command Palette */
-function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+function CommandPalette({ months, availabilityByWeekend, prefs, safeSetMost, safeSetLeast, submitted }) {
   const [open, setOpen] = React.useState(false);
   const [input, setInput] = React.useState("");
-  const [preview, setPreview] = React.useState({ ok: false, msg: "Type like: “jul 18 rni m” or “nov 21 coa l3”" });
+  const [preview, setPreview] = React.useState({ ok: false, msg: "Type: “jul 18 rni m” or “nov 21 coa l3”" });
   const inputRef = React.useRef(null);
 
   const MONTH_TO_MM = {
@@ -569,15 +574,12 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
 
   function parseCommand(raw) {
     const s = (raw || "").trim().toLowerCase();
-    if (!s) return { ok: false, msg: "Type like: “jul 18 rni m” or “nov 21 coa l3”" };
+    if (!s) return { ok: false, msg: "Type: “jul 18 rni m” or “nov 21 coa l3”" };
 
     const tokens = s.split(/\s+/);
 
     let mm = null;
-    for (let i = 0; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (MONTH_TO_MM[t]) { mm = MONTH_TO_MM[t]; break; }
-    }
+    for (const t of tokens) { if (MONTH_TO_MM[t]) { mm = MONTH_TO_MM[t]; break; } }
 
     let dd = null;
     for (const t of tokens) {
@@ -609,9 +611,9 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
       if (tr) explicitRank = parseInt(tr[1], 10);
     }
 
-    if (!mm || !dd) return { ok: false, msg: "Need a month and day. Example: “jul 18 rni m”" };
+    if (!mm || !dd) return { ok: false, msg: "Need month and day. Example: “jul 18 rni m”" };
     const id = `${YEAR}-${mm}-${dd}`;
-    if (!weekendIds.has(id)) return { ok: false, msg: `No weekend found for ${YEAR}-${mm}-${dd}. Check the Saturday date.` };
+    if (!weekendIds.has(id)) return { ok: false, msg: `No weekend found for ${displayDate(id)}.` };
 
     const avail = availabilityByWeekend[id] || [];
     let chosenService = service;
@@ -623,7 +625,7 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
       if (avail.length === 1) chosenService = avail[0];
       else return { ok: false, msg: "Specify service: rni or coa." };
     } else {
-      if (!avail.includes(chosenService)) return { ok: false, msg: `Service ${chosenService} is not open on that weekend.` };
+      if (!avail.includes(chosenService)) return { ok: false, msg: `Service ${chosenService} is not open on ${displayDate(id)}.` };
     }
 
     const rank = explicitRank || (listType === 'most' ? nextRanks.nextMost : nextRanks.nextLeast);
@@ -631,7 +633,7 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
 
     return {
       ok: true,
-      msg: `${listType === 'most' ? 'MOST' : 'LEAST'} #${rank} — ${chosenService} — ${id}`,
+      msg: `${listType === 'most' ? 'MOST' : 'LEAST'} #${rank} — ${chosenService} — ${displayDate(id)}`,
       action: { id, listType, chosenService, rank }
     };
   }
@@ -639,8 +641,8 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
   function applyAction(action) {
     if (!action || submitted) return;
     const { id, listType, chosenService, rank } = action;
-    if (listType === 'most') setMost(id, { mostService: chosenService, mostChoice: rank });
-    else setLeast(id, { leastService: chosenService, leastChoice: rank });
+    if (listType === 'most') safeSetMost(id, { mostService: chosenService, mostChoice: rank });
+    else safeSetLeast(id, { leastService: chosenService, leastChoice: rank });
   }
 
   useEffect(() => { setPreview(parseCommand(input)); }, [input, prefs]); // eslint-disable-line
@@ -731,7 +733,7 @@ function CommandPalette({ months, availabilityByWeekend, prefs, setMost, setLeas
 }
 
 /* QuickAdd */
-function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+function QuickAdd({ months, availabilityByWeekend, prefs, safeSetMost, safeSetLeast, submitted }) {
   const [month, setMonth] = React.useState('01');
   const [weekendId, setWeekendId] = React.useState('');
   const [service, setService] = React.useState('');
@@ -739,7 +741,7 @@ function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, sub
 
   const options = React.useMemo(() => {
     const arr = months[month] || [];
-    return arr.map(w => ({ id: w.date, label: `${w.date} (${w.day})` }));
+    return arr.map(w => ({ id: w.date, label: `${displayDate(w.date)} (${w.day})` }));
   }, [months, month]);
 
   const nextRanks = React.useMemo(() => {
@@ -764,22 +766,23 @@ function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, sub
     if (!weekendId) { alert('Pick a weekend'); return; }
     if (avail.length === 0) { alert('That weekend is fully assigned.'); return; }
     if (!service) { alert('Pick service (RNI/COA)'); return; }
+
     const rank = kind === 'most' ? nextRanks.nextMost : nextRanks.nextLeast;
 
     if (kind === 'most') {
-      setMost(weekendId, { mostService: service, mostChoice: rank });
-      setLastAction({ kind, weekendId, service, rank });
+      const ok = safeSetMost(weekendId, { mostService: service, mostChoice: rank });
+      if (ok) setLastAction({ kind, weekendId, service, rank });
     } else {
-      setLeast(weekendId, { leastService: service, leastChoice: rank });
-      setLastAction({ kind, weekendId, service, rank });
+      const ok = safeSetLeast(weekendId, { leastService: service, leastChoice: rank });
+      if (ok) setLastAction({ kind, weekendId, service, rank });
     }
   }
 
   function undo() {
     if (!lastAction) return;
     const { kind, weekendId } = lastAction;
-    if (kind === 'most') setMost(weekendId, { mostService: 'none', mostChoice: 0 });
-    else setLeast(weekendId, { leastService: 'none', leastChoice: 0 });
+    if (kind === 'most') safeSetMost(weekendId, { mostService: 'none', mostChoice: 0 });
+    else safeSetLeast(weekendId, { leastService: 'none', leastChoice: 0 });
     setLastAction(null);
   }
 
@@ -802,12 +805,12 @@ function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, sub
 
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <label style={{ display:'flex', alignItems:'center', gap:4, fontSize:13 }}>
-            <input type="radio" name="qa-service" disabled={!canPickService || disabled}
+            <input type="radio" name="qa-service" disabled={!canPickService || !avail.includes('RNI') || disabled}
                    checked={service==='RNI'} onChange={()=>setService('RNI')} />
             RNI
           </label>
           <label style={{ display:'flex', alignItems:'center', gap:4, fontSize:13 }}>
-            <input type="radio" name="qa-service" disabled={!canPickService || disabled}
+            <input type="radio" name="qa-service" disabled={!canPickService || !avail.includes('COA') || disabled}
                    checked={service==='COA'} onChange={()=>setService('COA')} />
             COA
           </label>
@@ -836,19 +839,18 @@ function QuickAdd({ months, availabilityByWeekend, prefs, setMost, setLeast, sub
 }
 
 /* RankBoard */
-function RankBoard({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+function RankBoard({ months, availabilityByWeekend, prefs, safeSetMost, safeSetLeast, submitted }) {
   const [q, setQ] = React.useState('');
   const rows = React.useMemo(() => {
     const out = [];
     for (const [mk, arr] of Object.entries(months)) {
-      const mName = MONTH_FULL[parseInt(mk,10)-1];
       for (const w of arr) {
         const id = w.date;
         const avail = availabilityByWeekend[id] || [];
         const p = prefs[id] || {};
         out.push({
           id,
-          label: `${mName} ${id.slice(8)} (${w.day})`,
+          label: `${displayDate(id)} (${w.day})`,
           openRNI: avail.includes('RNI'),
           openCOA: avail.includes('COA'),
           most: p.mostService !== 'none' && p.mostChoice > 0 ? `${p.mostService} #${p.mostChoice}` : '',
@@ -872,8 +874,8 @@ function RankBoard({ months, availabilityByWeekend, prefs, setMost, setLeast, su
 
   function add(id, svc, kind) {
     if (submitted) return;
-    if (kind === 'most') setMost(id, { mostService: svc, mostChoice: nextRanks.nextMost });
-    else setLeast(id, { leastService: svc, leastChoice: nextRanks.nextLeast });
+    if (kind === 'most') safeSetMost(id, { mostService: svc, mostChoice: nextRanks.nextMost });
+    else safeSetLeast(id, { leastService: svc, leastChoice: nextRanks.nextLeast });
   }
 
   return (
@@ -913,7 +915,7 @@ function RankBoard({ months, availabilityByWeekend, prefs, setMost, setLeast, su
 }
 
 /* DragBuckets */
-function DragBuckets({ months, availabilityByWeekend, prefs, setMost, setLeast, submitted }) {
+function DragBuckets({ months, availabilityByWeekend, prefs, safeSetMost, safeSetLeast, submitted }) {
   const [dragId, setDragId] = React.useState(null);
 
   const openWeekends = React.useMemo(() => {
@@ -922,7 +924,7 @@ function DragBuckets({ months, availabilityByWeekend, prefs, setMost, setLeast, 
       for (const w of arr) {
         const id = w.date;
         const avail = availabilityByWeekend[id] || [];
-        if (avail.length) out.push({ id, avail, label: `${id} (${w.day})` });
+        if (avail.length) out.push({ id, avail, label: `${displayDate(id)} (${w.day})` });
       }
     }
     return out;
@@ -940,8 +942,8 @@ function DragBuckets({ months, availabilityByWeekend, prefs, setMost, setLeast, 
   function onDragStart(id) { setDragId(id); }
   function onDrop(kind, svc) {
     if (!dragId || submitted) return;
-    if (kind === 'most') setMost(dragId, { mostService: svc,   mostChoice:  nextRanks.nextMost });
-    else                 setLeast(dragId, { leastService: svc, leastChoice: nextRanks.nextLeast });
+    if (kind === 'most') safeSetMost(dragId, { mostService: svc,   mostChoice:  nextRanks.nextMost });
+    else                 safeSetLeast(dragId, { leastService: svc, leastChoice: nextRanks.nextLeast });
     setDragId(null);
   }
 
@@ -1019,7 +1021,6 @@ export default function App() {
         onAuthStateChanged(auth, (u) => {
           if (u) setUid(u.uid);
           setStatus('Loading profile & preferences…');
-          // simple connectivity mark
           setFirebaseStatus(u ? 'connected' : 'connecting');
         });
       } catch (e) {
@@ -1077,6 +1078,28 @@ export default function App() {
     })();
   }, [uid]);
 
+  /* Safety: enforce availability in one place */
+  function validateService(id, svc) {
+    const avail = availabilityByWeekend[id] || [];
+    return svc === SERVICES.NONE || avail.includes(svc);
+  }
+  const safeSetMost = useCallback((id, v) => {
+    if (!validateService(id, v.mostService)) {
+      alert(`That service is not open on ${displayDate(id)}.`);
+      return false;
+    }
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostChoice: v.mostChoice } }));
+    return true;
+  }, []);
+  const safeSetLeast = useCallback((id, v) => {
+    if (!validateService(id, v.leastService)) {
+      alert(`That service is not open on ${displayDate(id)}.`);
+      return false;
+    }
+    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastChoice: v.leastChoice } }));
+    return true;
+  }, []);
+
   /* one-time auto-fill both Most and Least service when only one option is available */
   const [autoFilledOnce, setAutoFilledOnce] = useState(false);
   useEffect(() => {
@@ -1097,13 +1120,6 @@ export default function App() {
     });
     setAutoFilledOnce(true);
   }, [autoFilledOnce]);
-
-  const setMost = useCallback((id, v) => {
-    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostChoice: v.mostChoice } }));
-  }, []);
-  const setLeast = useCallback((id, v) => {
-    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastChoice: v.leastChoice } }));
-  }, []);
 
   const counts = useMemo(() => {
     let mostCount = 0, leastCount = 0;
@@ -1172,8 +1188,8 @@ export default function App() {
   const downloadMyCSV = () => {
     const { top10, bottom10 } = assembleTopBottom();
     const rows = [
-      ...top10.map(t => ({ attendee: profile.name, email: profile.email || '', kind: 'MOST',  choice: t.choice, service: t.service, weekend: t.weekend })),
-      ...bottom10.map(b => ({ attendee: profile.name, email: profile.email || '', kind: 'LEAST', choice: b.choice, service: b.service, weekend: b.weekend })),
+      ...top10.map(t => ({ attendee: profile.name, email: profile.email || '', kind: 'MOST',  choice: t.choice, service: t.service, weekend: displayDate(t.weekend) })),
+      ...bottom10.map(b => ({ attendee: profile.name, email: profile.email || '', kind: 'LEAST', choice: b.choice, service: b.service, weekend: displayDate(b.weekend) })),
     ];
     const fn = submitted ? `preferences_${profile.name || 'attending'}.csv` : `preferences_preview_${profile.name || 'attending'}.csv`;
     downloadCSV(fn, rows);
@@ -1202,8 +1218,8 @@ export default function App() {
         const em = data.email || '';
         const submittedAt = data.submittedAt?._seconds ? new Date(data.submittedAt._seconds * 1000).toISOString() : '';
         const pull = (x) => x.choice ?? x.rank;
-        data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST',  choice: pull(t), service: t.service, weekend: t.weekend, submittedAt }));
-        data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', choice: pull(b), service: b.service || '', weekend: b.weekend, submittedAt }));
+        data.top10.forEach(t => rows.push({ attendee, email: em, kind: 'MOST',  choice: pull(t), service: t.service, weekend: displayDate(t.weekend), submittedAt }));
+        data.bottom10.forEach(b => rows.push({ attendee, email: em, kind: 'LEAST', choice: pull(b), service: b.service || '', weekend: displayDate(b.weekend), submittedAt }));
       });
       rows.sort((a,b) => (a.attendee||'').localeCompare(b.attendee||'') || a.kind.localeCompare(b.kind) || (a.choice - b.choice));
       setAdminRows(rows);
@@ -1287,41 +1303,41 @@ export default function App() {
         months={months}
         availabilityByWeekend={availabilityByWeekend}
         prefs={prefs}
-        setMost={setMost}
-        setLeast={setLeast}
+        safeSetMost={safeSetMost}
+        safeSetLeast={safeSetLeast}
         submitted={submitted}
       />
 
-      {/* Optional fast UIs */}
+      {/* Optional fast UIs via query flags */}
       { (UI_MODE !== 'legacy') && (
         <>
-          {SHOW_QUICKADD && (
+          {(UI_MODE === 'quickadd' || UI_MODE === 'combo') && (
             <QuickAdd
               months={months}
               availabilityByWeekend={availabilityByWeekend}
               prefs={prefs}
-              setMost={setMost}
-              setLeast={setLeast}
+              safeSetMost={safeSetMost}
+              safeSetLeast={safeSetLeast}
               submitted={submitted}
             />
           )}
-          {SHOW_RANKBOARD && (
+          {(UI_MODE === 'rankboard' || UI_MODE === 'combo') && (
             <RankBoard
               months={months}
               availabilityByWeekend={availabilityByWeekend}
               prefs={prefs}
-              setMost={setMost}
-              setLeast={setLeast}
+              safeSetMost={safeSetMost}
+              safeSetLeast={safeSetLeast}
               submitted={submitted}
             />
           )}
-          {SHOW_DRAG && (
+          {UI_MODE === 'drag' && (
             <DragBuckets
               months={months}
               availabilityByWeekend={availabilityByWeekend}
               prefs={prefs}
-              setMost={setMost}
-              setLeast={setLeast}
+              safeSetMost={safeSetMost}
+              safeSetLeast={safeSetLeast}
               submitted={submitted}
             />
           )}
@@ -1331,8 +1347,8 @@ export default function App() {
       {/* Calendar */}
       <CalendarGrid
         prefs={prefs}
-        setMost={setMost}
-        setLeast={setLeast}
+        setMost={safeSetMost}
+        setLeast={safeSetLeast}
         collapsed={collapsed}
         setCollapsed={setCollapsed}
         submitted={submitted}
