@@ -4,7 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged }
 import { getFirestore, doc, getDoc, setDoc, serverTimestamp, collection, collectionGroup, getDocs, query } from 'firebase/firestore';
 
 /* Build tag */
-const __APP_VERSION__ = "v14.0 — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
+const __APP_VERSION__ = "v14.1 — inline badge, read-only lock, admin heatmap, balance hint, optional drag reorder";
 
 /* Firebase config cascade: injected → window → local fallback */
 const LOCAL_FALLBACK = {
@@ -882,29 +882,43 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-50" style={{ fontSize: 15 }}>
       {/* Sticky header with Jump + Firebase badge inline */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ maxWidth: 1120, margin: '0 auto', padding: '8px 12px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <strong style={{ marginRight: 8 }}>Jump:</strong>
-          {MONTH_KEYS.map((mk, i) => (
-            <a key={mk}
-               onClick={(e) => { e.preventDefault(); setCollapsed(c => ({ ...c, [mk]: false })); const el = document.getElementById(`month-${mk}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
-               href={`#month-${mk}`}
-               style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration: 'none', color: '#0f172a' }}>
-              {MONTH_FULL[i].slice(0,3)}
-            </a>
-          ))}
-          <span style={{ flex: 1 }} />
-          <span style={{ fontSize: 12, fontWeight: 700 }}>
-            {firebaseStatus === 'connected' && (<span style={{ color: '#059669' }}>● Firebase: Connected</span>)}
-            {firebaseStatus === 'connecting' && (<span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>)}
-            {firebaseStatus === 'error' && (<span style={{ color: '#dc2626' }}>● Firebase: Error</span>)}
-          </span>
-          <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Collapse all</button>
-          <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12 }}>Expand all</button>
-          <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #059669", background: '#10b981', color:'#fff', fontSize:12 }}>Preview/My CSV</button>
-          <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #4f46e5", background: '#6366f1', color:'#fff', fontSize:12 }}>Preview/My Word</button>
-        </div>
-      </div>
+<div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#ffffffcc', backdropFilter: 'saturate(180%) blur(4px)', borderBottom: '1px solid #e5e7eb' }}>
+  <div
+    style={{
+      maxWidth: 1120,
+      margin: '0 auto',
+      padding: '8px 12px',
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center',
+      flexWrap: 'nowrap',         // force single line
+      whiteSpace: 'nowrap',       // no wrapping
+      overflowX: 'auto'           // scroll if crowded
+    }}
+  >
+    <strong style={{ marginRight: 8, flexShrink: 0 }}>Jump:</strong>
+    {MONTH_KEYS.map((mk, i) => (
+      <a
+        key={mk}
+        onClick={(e) => { e.preventDefault(); setCollapsed(c => ({ ...c, [mk]: false })); const el = document.getElementById(`month-${mk}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+        href={`#month-${mk}`}
+        style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 12, textDecoration: 'none', color: '#0f172a', flexShrink: 0 }}
+      >
+        {MONTH_FULL[i].slice(0,3)}
+      </a>
+    ))}
+    <span style={{ flex: 1 }} />
+    <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+      {firebaseStatus === 'connected'  && (<span style={{ color: '#059669' }}>● Firebase: Connected</span>)}
+      {firebaseStatus === 'connecting' && (<span style={{ color: '#ea580c' }}>● Firebase: Connecting…</span>)}
+      {firebaseStatus === 'error'      && (<span style={{ color: '#dc2626' }}>● Firebase: Error</span>)}
+    </span>
+    <button onClick={() => collapseAll(true)}  style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Collapse all</button>
+    <button onClick={() => collapseAll(false)} style={{ padding:'6px 10px', borderRadius: 10, border:'1px solid #e5e7eb', background:'#fff', fontSize:12, flexShrink: 0 }}>Expand all</button>
+    <button onClick={downloadMyCSV}  style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #059669", background: '#10b981', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My CSV</button>
+    <button onClick={downloadMyWord} style={{ padding:'6px 10px', borderRadius: 10, border:"1px solid #4f46e5", background: '#6366f1', color:'#fff', fontSize:12, flexShrink: 0 }}>Preview/My Word</button>
+  </div>
+</div>
 
       {/* Header + instructions */}
       <div style={{ maxWidth: 1120, margin: '0 auto', padding: '16px 12px 0' }}>
