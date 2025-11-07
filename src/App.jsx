@@ -75,7 +75,7 @@ const ATTENDING_LIMITS = {
   "Jain":      { requested: 9,  claimed: 1, left: 8 },
   "Lal":       { requested: 0,  claimed: 0, left: 0 },
   "Shukla":    { requested: 9,  claimed: 1, left: 8 },
-  "Vivian":    { requested: 0,  claimed: 0, left: 2 },  // as provided
+  "Vivian":    { requested: 0,  claimed: 0, left: 0 },  // as provided
   "Carlo":     { requested: 5,  claimed: 5, left: 0 },
 };
 
