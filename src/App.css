@@ -1,67 +1,37 @@
-/* App.css — centering + gutters + responsive grid */
-
-:root {
-  --container-max: 1120px;     /* feel free to bump to 1280px */
-  --gutter: 16px;              /* side padding */
+/* Centering + gutters */
+.app-shell {
+  min-height: 100vh;
+  background: #f8fafc;
 }
-
-/* Make sure the root fills the viewport */
-html, body, #root {
-  height: 100%;
+.app-container {
+  max-width: 1200px;      /* hard width to center */
+  margin: 0 auto;         /* centers */
+  padding: 12px 16px;     /* gutters on small */
 }
-
-/* Centered page container with gutters */
-.container {
-  max-width: var(--container-max);
-  margin-left: auto;
-  margin-right: auto;
-  padding-left: var(--gutter);
-  padding-right: var(--gutter);
+@media (min-width: 1024px){
+  .app-container { padding: 12px 24px; }
 }
-
-/* A full-bleed wrapper for sticky bars that still centers inner content */
-.full-bleed {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  background: rgba(255,255,255,0.85);
-  -webkit-backdrop-filter: saturate(180%) blur(4px);
+.sticky-bar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(255,255,255,0.92);
   backdrop-filter: saturate(180%) blur(4px);
   border-bottom: 1px solid #e5e7eb;
 }
+.row-wrap { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 
-/* Tool row: keep on one line on laptop, wrap on small screens */
-.toolbar {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
+/* DragBuckets */
+.db-wrap { display:flex; gap:16px; align-items:flex-start; }
+.db-col { flex:1; min-width:280px; background:#fff; border:1px solid #e5e7eb; border-radius:12px; }
+.db-head { font-weight:800; padding:10px 12px; border-bottom:1px solid #e5e7eb; }
+.db-body { padding:10px; display:flex; gap:10px; flex-wrap:wrap; min-height:120px; }
+.db-source { overflow-x:auto; white-space:nowrap; padding:10px; display:flex; gap:12px; }
+.db-month { display:inline-flex; flex-direction:column; gap:8px; padding:8px; border:1px dashed #e5e7eb; border-radius:10px; min-width:240px; background:#fafafa; }
+.db-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; cursor:grab; }
+.db-item { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; cursor:grab; }
 
-/* Calendar grid: 2×6 feel on desktop, collapses on mobile */
-.month-grid {
-  display: grid;
-  gap: 32px;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  align-items: stretch;
-  justify-items: stretch;
-}
+/* Live preview */
+.preview-box { background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; padding:10px; }
 
-/* Ensure buttons don’t unexpectedly wrap alone */
-.nowrap {
-  white-space: nowrap;
-}
-
-/* Narrow screens: allow smaller cards */
-@media (max-width: 900px) {
-  .month-grid {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-}
-
-/* Slightly larger gutters on wider screens */
-@media (min-width: 1440px) {
-  :root { --gutter: 24px; }
-}
-
+/* Mode links */
+.mode-link { padding:6px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#fff; cursor:pointer; font-size:12px; }
+.mode-link.active { background:#111827; color:#fff; border-color:#111827; }
