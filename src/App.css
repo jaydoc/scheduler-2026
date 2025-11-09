@@ -1,6 +1,13 @@
-/* --- Centered page with gutters (works on 14" laptops) --- */
+/* Page centering + bands */
 :root {
-  --page-max: 1180px; /* tighten/loosen if you want */
+  --container-max: 1200px;
+  --gutter: 16px;
+  --band: #f3f4f6;  /* light gray side bands */
+  --panel: #ffffff;
+  --border: #e5e7eb;
+  --muted: #64748b;
+  --text: #0f172a;
+  --accent: #2563eb;
 }
 
 html, body, #root {
@@ -9,204 +16,304 @@ html, body, #root {
 
 body {
   margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  background: #f8fafc; /* subtle gray */
-  color: #0f172a;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: #fafafa;
+  color: var(--text);
 }
 
-/* Outer flex centers the app; gutters stay on both sides */
-.app-outer {
+/* Outer bands to visually center on laptops */
+.page {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, var(--container-max)) 1fr;
+  min-height: 100vh;
+  background: linear-gradient(90deg, var(--band) 0, var(--band) 1fr, transparent 1fr, transparent calc(100% - 1fr), var(--band) calc(100% - 1fr), var(--band) 100%);
+}
+
+/* Left/right fillers so you *see* gutters/bands */
+.page > .band {
+  background: var(--band);
+}
+
+/* Main centered column */
+.page > .main {
   display: flex;
-  justify-content: center;
-  min-height: 100%;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
-/* Inner is the page column */
-.app-inner {
-  width: 100%;
-  max-width: var(--page-max);
-  margin: 0 20px;             /* visible side gutters even on small screens */
-}
-
-/* Sticky top bar */
+/* Sticky top controls (one line) */
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 40;
-  background: rgba(255,255,255,0.95);
-  backdrop-filter: saturate(180%) blur(6px);
-  border-bottom: 1px solid #e5e7eb;
+  z-index: 50;
+  backdrop-filter: saturate(180%) blur(4px);
+  background: rgba(255,255,255,0.9);
+  border-bottom: 1px solid var(--border);
 }
 
-/* Single-row control strip; wraps nicely if it must */
-.topbar-row {
+.topbar-inner {
   display: flex;
-  gap: 8px;
   align-items: center;
-  flex-wrap: wrap;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 10px var(--gutter);
+  flex-wrap: nowrap;              /* keep it one line on desktop */
+  overflow-x: auto;               /* allow horizontal scroll if needed */
 }
 
-/* Left -> right spacers */
-.flex-1 { flex: 1 1 auto; }
-.nowrap { white-space: nowrap; }
-
-/* Small neutral buttons */
+/* Buttons/inputs in top bar */
 .btn {
   appearance: none;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  color: #0f172a;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.btn:hover { background: #f3f4f6; }
-
-/* Emphasis buttons */
-.btn-green {
-  border-color: #059669;
-  background: #10b981;
-  color: #ffffff;
-}
-.btn-green:hover { background: #0ea371; }
-
-.btn-indigo {
-  border-color: #4f46e5;
-  background: #6366f1;
-  color: #ffffff;
-}
-.btn-indigo:hover { background: #5156e9; }
-
-.btn-blue {
-  border-color: #2563eb;
-  background: #3b82f6;
-  color: #ffffff;
-}
-.btn-blue:hover { background: #2563eb; }
-
-/* Mode tabs */
-.tabs { display: flex; gap: 6px; align-items: center; }
-.tab {
-  border: 1px solid #e5e7eb;
-  padding: 6px 10px;
-  border-radius: 8px;
+  border: 1px solid var(--border);
   background: #fff;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn.primary {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn.success {
+  border-color: #047857;
+  background: #10b981;
+  color: #fff;
+}
+
+.btn.info {
+  border-color: #4338ca;
+  background: #6366f1;
+  color: #fff;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* Month jump buttons strip */
+.jump-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.pill {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 10px;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
-.tab.active {
-  background: #e0f2fe;
-  border-color: #93c5fd;
+
+/* Main content wrapper */
+.container {
+  width: 100%;
+  max-width: var(--container-max);
+  margin: 0 auto;
+  padding: 12px var(--gutter) 24px;
 }
 
-/* Section blocks */
-.block {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 12px;
-}
-
-/* Two-column grid for calendar months (2×6) */
+/* Grid: 2 × 6 months (responsive) */
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  grid-template-columns: repeat(2, minmax(380px, 1fr));
   gap: 24px;
 }
 
-/* Month card */
-.month-card {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  background: #fff;
-  overflow: hidden;
+@media (max-width: 980px) {
+  .month-grid {
+    grid-template-columns: 1fr;
+  }
 }
-.month-head {
-  font-weight: 800;
-  padding: 10px 12px;
-  border-bottom: 2px solid #e5e7eb;
+
+/* Month card */
+.card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  min-height: 120px;
+}
+
+.card-head {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  font-weight: 800;
+  font-size: 16px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
 }
-.month-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+.card-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
 /* Weekend row */
-.weekend-row {
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 10px;
+.weekend {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
   background: #fff;
 }
-
-/* Label chips */
-.chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #cbd5e1; }
-.chip-soft { background: #f1f5f9; }
-
-/* Live preview */
-.preview {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+.weekend.assigned {
+  background: #f9fafb;
+  opacity: 0.9;
 }
-.preview h4 { margin: 0 0 6px 0; }
-.preview .pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 3px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e5e7eb; background: #f8fafc;
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  border: 1px solid #00000014;
+}
+
+.badge-hint { background: #fff7ed; color: #b45309; }
+.badge-ok   { background: #d1fae5; color: #10b981; }
+.badge-warn { background: #ffe4e6; color: #e11d48; }
+
+/* Identity + info blocks */
+.info {
+  font-size: 13px;
+  color: #0f5132;
+  background: #d1e7dd;
+  border: 1px solid #badbcc;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin: 8px 0 10px;
+}
+
+.status {
+  margin: 8px 0 10px;
+  font-size: 13px;
+  color: #3730a3;
+  background: #eef2ff;
+  border-left: 4px solid #818cf8;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+/* Live preview layout */
+.main-flex {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .main-flex {
+    grid-template-columns: 1fr;
+  }
+}
+
+.sidebar {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.sidebar h3 {
+  margin: 0 0 8px 0;
 }
 
 /* DragBuckets */
-.drag-area {
+.dock {
   display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 16px;
+  grid-template-columns: 1fr 280px 280px;
+  gap: 12px;
 }
-.drag-pool {
-  min-height: 380px;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
+@media (max-width: 1100px) {
+  .dock {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pool {
+  border: 1px dashed var(--border);
   border-radius: 10px;
   padding: 10px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  white-space: nowrap; /* horizontal scroller */
+  background: #fff;
+  overflow-x: auto; /* horizontal pool */
 }
-.pool-month {
-  display: inline-block;
-  vertical-align: top;
-  width: 240px;
-  margin-right: 12px;
+
+.pool-strip {
+  display: flex;
+  gap: 8px;
+  min-width: 900px; /* force horizontal */
 }
-.pool-chip {
-  display: flex; justify-content: space-between; align-items: center;
-  gap: 8px; padding: 6px 10px; border-radius: 8px;
-  border: 1px solid #e5e7eb; background: #fff; margin: 6px 0;
+
+.month-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 220px;
+  background: #fcfcff;
 }
-.drop-col {
-  min-height: 380px;
-  background: #fbfdfc;
-  border: 1px solid #e5e7eb;
+
+.month-block h4 {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  background: #eef2ff;
+}
+
+.block-list {
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.draggable {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  cursor: grab;
+}
+
+.bucket {
+  border: 2px dashed var(--border);
+  background: #fafafa;
   border-radius: 10px;
   padding: 10px;
+  min-height: 220px;
 }
 
-/* Guard overlay when name not selected */
-.guard {
-  background: rgba(248,250,252,0.9);
-  border: 2px dashed #94a3b8;
-  color: #334155;
-  border-radius: 12px;
-  padding: 16px;
-  text-align: center;
-  font-weight: 700;
+.bucket-title {
+  font-weight: 800;
+  font-size: 14px;
+  margin-bottom: 8px;
 }
 
-/* Tiny Firebase badge in top bar */
-.badge-ok   { color: #065f46; background: #d1fae5; border: 1px solid #10b981; }
-.badge-bad  { color: #7f1d1d; background: #fee2e2; border: 1px solid #ef4444; }
-
-/* Small help text */
-.help { color:#475569; font-size: 13px; }
+/* Small helpers */
+.flex { display: flex; }
+.gap8 { gap: 8px; }
+.gap12 { gap: 12px; }
+.center { align-items: center; justify-content: center; }
+.bold { font-weight: 800; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
