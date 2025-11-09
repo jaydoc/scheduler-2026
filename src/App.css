@@ -1,32 +1,67 @@
-/* Basic reset-ish */
+/* App.css — centering + gutters + responsive grid */
+
+:root {
+  --container-max: 1120px;     /* feel free to bump to 1280px */
+  --gutter: 16px;              /* side padding */
+}
+
+/* Make sure the root fills the viewport */
 html, body, #root {
   height: 100%;
 }
-body {
-  margin: 0;
-  background: #f6f7fb;
-  color: #111827;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-}
 
-/* Page centers everything and provides side gutters */
-.page {
-  min-height: 100%;
-  display: block;
-}
-
-/* Max width + centered container used everywhere */
+/* Centered page container with gutters */
 .container {
-  max-width: 1200px;        /* wide but not edge-to-edge */
-  margin-left: auto;        /* ← center */
-  margin-right: auto;       /* center → */
-  padding-left: 16px;       /* gutter */
-  padding-right: 16px;      /* gutter */
-  box-sizing: border-box;
+  max-width: var(--container-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: var(--gutter);
+  padding-right: var(--gutter);
 }
 
-/* Buttons inherit default cursor when disabled */
-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.8;
+/* A full-bleed wrapper for sticky bars that still centers inner content */
+.full-bleed {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(255,255,255,0.85);
+  -webkit-backdrop-filter: saturate(180%) blur(4px);
+  backdrop-filter: saturate(180%) blur(4px);
+  border-bottom: 1px solid #e5e7eb;
 }
+
+/* Tool row: keep on one line on laptop, wrap on small screens */
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Calendar grid: 2×6 feel on desktop, collapses on mobile */
+.month-grid {
+  display: grid;
+  gap: 32px;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  align-items: stretch;
+  justify-items: stretch;
+}
+
+/* Ensure buttons don’t unexpectedly wrap alone */
+.nowrap {
+  white-space: nowrap;
+}
+
+/* Narrow screens: allow smaller cards */
+@media (max-width: 900px) {
+  .month-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+/* Slightly larger gutters on wider screens */
+@media (min-width: 1440px) {
+  :root { --gutter: 24px; }
+}
+
