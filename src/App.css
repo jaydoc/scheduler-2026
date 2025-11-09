@@ -1,7 +1,6 @@
-/* App.css — layout centering + gutters + utilities */
-
+/* --- Centered page with gutters (works on 14" laptops) --- */
 :root {
-  --container-max: 1180px;
+  --page-max: 1180px; /* tighten/loosen if you want */
 }
 
 html, body, #root {
@@ -10,196 +9,204 @@ html, body, #root {
 
 body {
   margin: 0;
-  background: #f8fafc; /* gray-50 */
-  color: #0f172a;      /* slate-900 */
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  background: #f8fafc; /* subtle gray */
+  color: #0f172a;
 }
 
-.app-shell {
-  min-height: 100vh;
+/* Outer flex centers the app; gutters stay on both sides */
+.app-outer {
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  min-height: 100%;
+}
+
+/* Inner is the page column */
+.app-inner {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 20px;             /* visible side gutters even on small screens */
 }
 
 /* Sticky top bar */
 .topbar {
   position: sticky;
   top: 0;
-  z-index: 50;
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: saturate(160%) blur(4px);
-  border-bottom: 1px solid #e5e7eb; /* gray-200 */
+  z-index: 40;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: saturate(180%) blur(6px);
+  border-bottom: 1px solid #e5e7eb;
 }
 
-/* Centered container with gutters */
-.container {
-  width: 100%;
-  max-width: var(--container-max);
-  margin: 0 auto;               /* centers! */
-  padding-left: 16px;           /* gutters */
-  padding-right: 16px;
-}
-
-/* One-line, scrollable controls (never wrap visually) */
-.row-nowrap {
+/* Single-row control strip; wraps nicely if it must */
+.topbar-row {
   display: flex;
-  align-items: center;
   gap: 8px;
-  white-space: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
-  padding: 8px 0;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 10px;
 }
 
-/* Month grid (2 × 6 feel, responsive) */
+/* Left -> right spacers */
+.flex-1 { flex: 1 1 auto; }
+.nowrap { white-space: nowrap; }
+
+/* Small neutral buttons */
+.btn {
+  appearance: none;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn:hover { background: #f3f4f6; }
+
+/* Emphasis buttons */
+.btn-green {
+  border-color: #059669;
+  background: #10b981;
+  color: #ffffff;
+}
+.btn-green:hover { background: #0ea371; }
+
+.btn-indigo {
+  border-color: #4f46e5;
+  background: #6366f1;
+  color: #ffffff;
+}
+.btn-indigo:hover { background: #5156e9; }
+
+.btn-blue {
+  border-color: #2563eb;
+  background: #3b82f6;
+  color: #ffffff;
+}
+.btn-blue:hover { background: #2563eb; }
+
+/* Mode tabs */
+.tabs { display: flex; gap: 6px; align-items: center; }
+.tab {
+  border: 1px solid #e5e7eb;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tab.active {
+  background: #e0f2fe;
+  border-color: #93c5fd;
+}
+
+/* Section blocks */
+.block {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+/* Two-column grid for calendar months (2×6) */
 .month-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(420px, 1fr));
-  gap: 28px;
-}
-@media (max-width: 980px) {
-  .month-grid { grid-template-columns: 1fr; }
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  gap: 24px;
 }
 
-/* Generic card */
-.card {
-  border: 1px solid #e2e8f0;    /* slate-200 */
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-}
-
-/* Section spacing */
-.section { padding: 16px 0; }
-
-/* Buttons */
-.btn {
-  padding: 6px 10px;
+/* Month card */
+.month-card {
+  border: 1px solid #e5e7eb;
   border-radius: 12px;
-  border: 1px solid #e5e7eb;
   background: #fff;
-  cursor: pointer;
-  font-size: 12px;
+  overflow: hidden;
 }
-.btn-primary {
-  background: #2563eb;          /* blue-600 */
-  color: #fff;
-  border-color: #1d4ed8;
-}
-.btn-green {
-  background: #10b981;          /* emerald-500 */
-  color: #fff;
-  border-color: #059669;
-}
-.btn-indigo {
-  background: #6366f1;          /* indigo-500 */
-  color: #fff;
-  border-color: #4f46e5;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-/* Chips */
-.chip {
-  display: inline-flex;
+.month-head {
+  font-weight: 800;
+  padding: 10px 12px;
+  border-bottom: 2px solid #e5e7eb;
+  display: flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 12px;
+  justify-content: center;
+  gap: 8px;
+}
+.month-body { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Weekend row */
+.weekend-row {
   border: 1px solid #e5e7eb;
-  background: #f1f5f9;
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
 }
 
-/* Live preview sidebar */
+/* Label chips */
+.chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #cbd5e1; }
+.chip-soft { background: #f1f5f9; }
+
+/* Live preview */
 .preview {
-  position: sticky;
-  top: 64px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.preview h4 { margin: 0 0 6px 0; }
+.preview .pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e5e7eb; background: #f8fafc;
 }
 
 /* DragBuckets */
-.dbkt-shell {
+.drag-area {
   display: grid;
-  grid-template-columns: 1fr 320px 320px;
+  grid-template-columns: 1.2fr 1fr 1fr;
   gap: 16px;
 }
-@media (max-width: 1200px) {
-  .dbkt-shell { grid-template-columns: 1fr; }
-}
-.pool-row {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: max-content;
-  gap: 10px;
+.drag-pool {
+  min-height: 380px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 10px;
   overflow-x: auto;
-  padding-bottom: 6px;
+  overflow-y: hidden;
+  white-space: nowrap; /* horizontal scroller */
 }
 .pool-month {
-  min-width: 260px;
+  display: inline-block;
+  vertical-align: top;
+  width: 240px;
+  margin-right: 12px;
 }
-.draggable {
-  user-select: none;
-  padding: 6px 8px;
-  border-radius: 10px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  font-size: 13px;
+.pool-chip {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; padding: 6px 10px; border-radius: 8px;
+  border: 1px solid #e5e7eb; background: #fff; margin: 6px 0;
 }
-.dropzone {
-  min-height: 160px;
-  padding: 8px;
-  border: 2px dashed #e5e7eb;
-  border-radius: 12px;
-  background: #fafafa;
-}
-.dropzone.dragover {
-  background: #eef2ff;          /* indigo-100 */
-  border-color: #818cf8;         /* indigo-400 */
-}
-
-/* Command palette */
-.cmd-box {
-  display: flex;
-  gap: 8px;
-}
-.cmd-input {
-  flex: 1;
-  padding: 10px 12px;
-  font-size: 14px;
+.drop-col {
+  min-height: 380px;
+  background: #fbfdfc;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  background: #fff;
-}
-.cmd-help {
-  font-size: 12px;
-  color: #475569;
+  padding: 10px;
 }
 
-/* Disabled overlay when no name picked */
-.blocker {
-  position: relative;
-}
-.blocker::after {
-  content: "Select your name above to begin.";
-  display: var(--blocker-display, none);
-  position: absolute;
-  inset: 0;
-  background: rgba(255,255,255,0.7);
-  backdrop-filter: blur(1px);
-  color: #1f2937;
-  font-weight: 800;
-  font-size: 16px;
-  letter-spacing: .2px;
-  display: grid;
-  place-items: center;
+/* Guard overlay when name not selected */
+.guard {
+  background: rgba(248,250,252,0.9);
+  border: 2px dashed #94a3b8;
+  color: #334155;
   border-radius: 12px;
-  border: 1px dashed #cbd5e1;
+  padding: 16px;
+  text-align: center;
+  font-weight: 700;
 }
 
-/* Headers */
-.h1 { font-size: 24px; font-weight: 900; color: #1f2937; margin: 6px 0 4px; }
-.h2 { font-size: 16px; font-weight: 800; color: #334155; margin: 0 0 8px; }
+/* Tiny Firebase badge in top bar */
+.badge-ok   { color: #065f46; background: #d1fae5; border: 1px solid #10b981; }
+.badge-bad  { color: #7f1d1d; background: #fee2e2; border: 1px solid #ef4444; }
 
-/* Gently larger base font */
-body, .app-shell { font-size: 15px; }
+/* Small help text */
+.help { color:#475569; font-size: 13px; }
