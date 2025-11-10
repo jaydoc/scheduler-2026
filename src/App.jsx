@@ -1,30 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+// Firebase SDK (v9+ modular)
 import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  signInAnonymously,
-  onAuthStateChanged,
-} from "firebase/auth";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-  collection,
-} from "firebase/firestore";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 
-import './App.css';
-
-
-/* =========================================================
-   BUILD TAG
-========================================================= */
-const __APP_VERSION__ = "v13.0 — unified modes, centered, horizontal DragBuckets, Jan-first QuickAdd";
-
-/* =========================================================
-   FIREBASE CONFIG (keeps your original fallbacks)
-========================================================= */
+/**********************************
+  FIREBASE CONFIG (keeps your original fallbacks)
+**********************************/
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
   authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -36,7 +18,6 @@ const LOCAL_FALLBACK = {
 };
 const firebaseConfig = (() => {
   try {
-    // allow injected compile-time/global config if present
     if (typeof __firebase_config !== "undefined" && __firebase_config) {
       return JSON.parse(__firebase_config);
     }
@@ -47,17 +28,15 @@ const firebaseConfig = (() => {
   return LOCAL_FALLBACK;
 })();
 const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v13.0";
+
+/**********************************
+  CONSTANTS + DATA
+**********************************/
 const YEAR = 2026;
-const SERVICES = { RNI: "RNI", COA: "COA", NONE: "none" };
+const SERVICES = { RNI: "RNI", COA: "COA" };
+const MODES = { CAL: "Calendar", QA: "QuickAdd", RB: "RankBoard", DB: "DragBuckets" };
 
-/* Init Firebase */
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-/* =========================================================
-   ATTENDINGS (with emails you provided)
-========================================================= */
+// ATTENDINGS (subset you provided — can be extended or fetched later)
 const ATTENDINGS = [
   { name: "Ambal",    email: "nambalav@uab.edu" },
   { name: "Arora",    email: "nitinarora@uabmc.edu" },
@@ -79,32 +58,7 @@ const ATTENDINGS = [
   { name: "Vivian",   email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* Optional display of target counts (shown after selecting name) */
-const ATTENDING_LIMITS = {
-  Ambal:     { requested: 6,  claimed: 4, left: 2 },
-  Schuyler:  { requested: 3,  claimed: 2, left: 1 },
-  Mackay:    { requested: 5,  claimed: 1, left: 4 },
-  Kane:      { requested: 1,  claimed: 1, left: 0 },
-  Salas:     { requested: 3,  claimed: 0, left: 3 },
-  Sims:      { requested: 8,  claimed: 4, left: 4 },
-  Travers:   { requested: 7,  claimed: 4, left: 3 },
-  Kandasamy: { requested: 10, claimed: 6, left: 4 },
-  Willis:    { requested: 9,  claimed: 4, left: 5 },
-  Bhatia:    { requested: 6,  claimed: 5, left: 1 },
-  Winter:    { requested: 5,  claimed: 3, left: 2 },
-  Boone:     { requested: 9,  claimed: 6, left: 3 },
-  Arora:     { requested: 9,  claimed: 7, left: 2 },
-  Jain:      { requested: 9,  claimed: 1, left: 8 },
-  Lal:       { requested: 0,  claimed: 0, left: 0 },
-  Shukla:    { requested: 9,  claimed: 1, left: 8 },
-  Vivian:    { requested: 0,  claimed: 0, left: 2 },
-  Carlo:     { requested: 5,  claimed: 5, left: 0 },
-};
-
-/* =========================================================
-   CALENDAR (SATURDAYS OF 2026) — your current state
-   (Same content structure you’ve been using.)
-========================================================= */
+// Calendar data (Saturdays of 2026) — copied from your snippet
 const months = {
   "01": [
     { day: "10",       date: "2026-01-10", rni: null,      coa: null },
@@ -186,1128 +140,611 @@ const months = {
 const MONTH_KEYS  = ["01","02","03","04","05","06","07","08","09","10","11","12"];
 const MONTH_FULL  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-/* Flat weekends list in Jan→Dec order */
-const weekendsFlat = MONTH_KEYS.flatMap((mk, i) =>
-  months[mk].map(w => ({
-    id: w.date,
-    monthKey: mk,
-    monthIdx: i,
-    monthName: MONTH_FULL[i],
-    dayText: w.day,
-    rni: w.rni,
-    coa: w.coa,
-    detail: w.detail || "",
-    isTaken: Boolean(w.isTaken),
-  }))
-);
-const allWeekendIds = weekendsFlat.map(x => x.id);
-
-/* Availability map per weekend id */
-const availabilityByWeekend = (() => {
-  const m = {};
-  for (const w of weekendsFlat) {
-    const avail = [];
-    if (w.rni === null) avail.push(SERVICES.RNI);
-    if (w.coa === null) avail.push(SERVICES.COA);
-    m[w.id] = avail; // [] means fully assigned
-  }
-  return m;
-})();
-
-/* =========================================================
-   UTIL & SHARED HELPERS
-========================================================= */
-function initEmptyPrefs() {
-  const base = {};
-  for (const id of allWeekendIds) {
-    base[id] = { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
-  }
-  return base;
-}
-function toCSV(rows) {
-  if (!rows.length) return "";
-  const headers = Object.keys(rows[0]);
-  const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const body = rows.map(r => headers.map(h => esc(r[h])).join(",")).join("\n");
-  return [headers.join(","), body].join("\n");
-}
-function downloadBlob(filename, mime, content) {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
-}
-function monthLabel(iso) {
-  const d = new Date(iso + "T00:00:00");
-  return `${MONTH_FULL[d.getMonth()]} ${d.getDate()}`;
-}
-function nextChoiceNumber(list) {
-  // list: array of {choice}
-  return list.reduce((m, x) => Math.max(m, x.choice || 0), 0) + 1;
+/**********************************
+  HELPERS — Rank compression + conflict guards
+**********************************/
+function compressRanks(list) {
+  // sort by rank asc, then rewrite ranks as 1..N
+  const sorted = [...list].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+  return sorted.map((item, idx) => ({ ...item, rank: idx + 1 }));
 }
 
-/* =========================================================
-   “LIVE PREVIEW” (persists across modes)
-========================================================= */
-function LivePreview({ prefs, profile }) {
-  const summary = useMemo(() => {
-    const top = [];
-    const low = [];
-    for (const id of allWeekendIds) {
-      const p = prefs[id];
-      if (!p) continue;
-      if (p.mostService !== SERVICES.NONE && p.mostChoice > 0) {
-        top.push({ id, service: p.mostService, choice: p.mostChoice });
-      }
-      if (p.leastService !== SERVICES.NONE && p.leastChoice > 0) {
-        low.push({ id, service: p.leastService, choice: p.leastChoice });
-      }
+function hasDate(list, date) {
+  return list.some((x) => x.date === date);
+}
+
+function hasDateService(list, date, service) {
+  return list.some((x) => x.date === date && x.service === service);
+}
+
+function nextRank(list) {
+  if (!list.length) return 1;
+  const max = Math.max(...list.map((x) => x.rank ?? 0));
+  return isFinite(max) ? max + 1 : 1;
+}
+
+function getAvailableServicesForDate(date) {
+  // from months data, determine which services are actually open that weekend
+  for (const mk of MONTH_KEYS) {
+    const hit = months[mk].find((d) => d.date === date);
+    if (hit) {
+      const out = [];
+      if (!hit.rni || hit.rni === null) out.push(SERVICES.RNI);
+      if (!hit.coa || hit.coa === null) out.push(SERVICES.COA);
+      return out;
     }
-    top.sort((a,b) => a.choice - b.choice || allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id));
-    low.sort((a,b) => a.choice - b.choice || allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id));
-    return { top, low };
-  }, [prefs]);
+  }
+  // default: if not found, allow both
+  return [SERVICES.RNI, SERVICES.COA];
+}
 
+/**********************************
+  UI atoms
+**********************************/
+function Pill({ children }) {
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12 }}>
-      <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 8 }}>
-        Live Preview{profile?.name ? ` — ${profile.name}` : ""}
-      </div>
-      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Most</div>
-          {summary.top.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#6b7280" }}>— none —</div>
-          ) : summary.top.map((r, idx) => (
-            <div key={`top-${idx}`} style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ padding: "2px 6px", borderRadius: 8, background: "#d1fae5", border: "1px solid #10b98133", fontSize: 12 }}>#{r.choice}</span>
-              <span>{monthLabel(r.id)} — {r.service}</span>
-            </div>
-          ))}
-        </div>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least</div>
-          {summary.low.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#6b7280" }}>— none —</div>
-          ) : summary.low.map((r, idx) => (
-            <div key={`low-${idx}`} style={{ fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
-              <span style={{ padding: "2px 6px", borderRadius: 8, background: "#fee2e2", border: "1px solid #ef444433", fontSize: 12 }}>#{r.choice}</span>
-              <span>{monthLabel(r.id)} — {r.service}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <span className="px-2 py-0.5 rounded-full bg-slate-100 border text-slate-700 text-xs mr-1">
+      {children}
+    </span>
   );
 }
 
-/* =========================================================
-   MODE 1: CALENDAR (2×6 grid, collapsed by default, centered)
-========================================================= */
-function CalendarMode({
-  prefs, setMost, setLeast, submitted, collapsed, setCollapsed,
-}) {
-  const container = {
-    maxWidth: 1200, margin: "0 auto", padding: "0 16px 24px",
-    display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 24,
-  };
-
-  const headerChip = (bg, fg, border) => ({
-    background: bg, color: fg, borderBottom: `2px solid ${border}`,
-    fontWeight: 800, fontSize: 16, padding: "10px 12px", textAlign: "center",
-  });
-
-  const monthColor = (idx) => {
-    const pal = [
-      ["#fde68a","#1f2937","#f59e0b"],
-      ["#bfdbfe","#1f2937","#3b82f6"],
-      ["#bbf7d0","#064e3b","#10b981"],
-      ["#fecaca","#7f1d1d","#f87171"],
-      ["#ddd6fe","#312e81","#8b5cf6"],
-      ["#c7d2fe","#1e3a8a","#6366f1"],
-      ["#fbcfe8","#831843","#ec4899"],
-      ["#a7f3d0","#065f46","#34d399"],
-      ["#fcd34d","#1f2937","#f59e0b"],
-      ["#fca5a5","#7f1d1d","#ef4444"],
-      ["#93c5fd","#1e3a8a","#3b82f6"],
-      ["#86efac","#064e3b","#22c55e"],
-    ];
-    return pal[idx] || ["#e5e7eb", "#111827", "#9ca3af"];
-  };
-
+function Section({ title, children, right }) {
   return (
-    <div style={container}>
-      {MONTH_KEYS.map((mk, i) => {
-        const [bg, fg, br] = monthColor(i);
-        const items = months[mk];
-        return (
-          <div key={mk} id={`month-${mk}`} style={{ border: "1px solid #e5e7eb", borderRadius: 14, background: "#fff" }}>
-            <button
-              onClick={() => setCollapsed(c => ({ ...c, [mk]: !c[mk] }))}
-              style={{ ...headerChip(bg, fg, br), width: "100%", cursor: "pointer" }}
-              title="Collapse/expand"
-            >
-              {MONTH_FULL[i]} {YEAR} {collapsed[mk] ? "▸" : "▾"}
-            </button>
-            {!collapsed[mk] && (
-              <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                {items.map(w => {
-                  const id = w.date;
-                  const p  = prefs[id] || { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
-                  const avail = availabilityByWeekend[id] || [];
-                  const fullyAssigned = avail.length === 0;
+    <section className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">{title}</h3>
+        {right}
+      </div>
+      <div className="rounded-xl border bg-white p-3 shadow-sm">{children}</div>
+    </section>
+  );
+}
 
-                  const setMostSafe  = (svcOrChoice, val) => {
-                    const nx = { ...p };
-                    if (svcOrChoice === "svc") {
-                      if (!avail.includes(val)) return;        // enforce real availability
-                      nx.mostService = val;
-                      // prevent both services in same day for same bucket by design (only one radio)
-                    } else {
-                      nx.mostChoice = val;
-                    }
-                    // If setting MOST, clear LEAST on same date to prevent double-claiming on both buckets if desired
-                    // (You asked only to prevent both services within same bucket; leaving cross-bucket allowed.)
-                    setMost(id, nx);
-                  };
-                  const setLeastSafe = (svcOrChoice, val) => {
-                    const nx = { ...p };
-                    if (svcOrChoice === "svc") {
-                      if (!avail.includes(val)) return;
-                      nx.leastService = val;
-                    } else {
-                      nx.leastChoice = val;
-                    }
-                    setLeast(id, nx);
-                  };
+/**********************************
+  MAIN APP
+**********************************/
+export default function App() {
+  // Firebase init once
+  const app = useMemo(() => initializeApp(firebaseConfig), []);
+  const auth = useMemo(() => getAuth(app), [app]);
+  const db = useMemo(() => getFirestore(app), [app]);
 
+  // Auth (anonymous is enough for now)
+  const [uid, setUid] = useState(null);
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) setUid(user.uid);
+      else signInAnonymously(auth).catch(() => {});
+    });
+    return () => unsub();
+  }, [auth]);
+
+  // Name gate
+  const [me, setMe] = useState("");
+  const [selected, setSelected] = useState(null); // attending object
+  const attendingMap = useMemo(() => Object.fromEntries(ATTENDINGS.map(a => [a.name, a])), []);
+
+  // Global UI state
+  const [mode, setMode] = useState(MODES.CAL);
+  const [most, setMost] = useState([]);   // [{date, service, rank}]
+  const [least, setLeast] = useState([]); // [{date, service, rank}]
+
+  // Command palette (very light impl)
+  const [cmdOpen, setCmdOpen] = useState(false);
+
+  // Live preview across modes (always shown)
+  const preview = (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <h4 className="font-semibold mb-1">Most preferred</h4>
+        <ol className="space-y-1">
+          {compressRanks(most).map((x) => (
+            <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+              <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+              <button
+                className="text-xs text-rose-600"
+                onClick={() => removeFrom("most", x.date, x.service)}
+              >remove</button>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div>
+        <h4 className="font-semibold mb-1">Least preferred</h4>
+        <ol className="space-y-1">
+          {compressRanks(least).map((x) => (
+            <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+              <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+              <button
+                className="text-xs text-rose-600"
+                onClick={() => removeFrom("least", x.date, x.service)}
+              >remove</button>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+
+  /**************
+    GUARDS
+  **************/
+  const blockIfConflicts = useCallback((target, date, service) => {
+    // 1) Same date cannot be both MOST and LEAST (any service)
+    if (target === "most" && hasDate(least, date)) return { ok: false, msg: "That date is already in Least." };
+    if (target === "least" && hasDate(most, date)) return { ok: false, msg: "That date is already in Most." };
+
+    // 2) Within the same bucket: same weekend cannot have both services (mutual exclusion)
+    const bucket = target === "most" ? most : least;
+    if (bucket.some(x => x.date === date && x.service !== service)) {
+      return { ok: false, msg: "RNI/COA are mutually exclusive for the same weekend in the same list." };
+    }
+
+    // 3) Duplicate (same date+service) within the same list
+    if (hasDateService(bucket, date, service)) {
+      return { ok: false, msg: "Already added." };
+    }
+
+    return { ok: true };
+  }, [most, least]);
+
+  const addTo = useCallback((target, date, service, rank = null) => {
+    const available = getAvailableServicesForDate(date);
+    let chosenService = service;
+    if (!chosenService) {
+      if (available.length === 1) chosenService = available[0];
+      else return { ok: false, msg: "Pick a service (RNI or COA)." };
+    }
+
+    const guard = blockIfConflicts(target, date, chosenService);
+    if (!guard.ok) return guard;
+
+    const make = (list) => {
+      const out = [...list, { date, service: chosenService, rank: rank ?? nextRank(list) }];
+      return compressRanks(out);
+    };
+
+    if (target === "most") setMost((prev) => make(prev));
+    else setLeast((prev) => make(prev));
+    return { ok: true };
+  }, [blockIfConflicts]);
+
+  const removeFrom = useCallback((target, date, service) => {
+    const rm = (list) => compressRanks(list.filter((x) => !(x.date === date && x.service === service)));
+    if (target === "most") setMost((prev) => rm(prev));
+    else setLeast((prev) => rm(prev));
+  }, []);
+
+  const clearAll = () => { setMost([]); setLeast([]); };
+
+  /**************
+    SAVE / SUBMIT
+  **************/
+  const submit = async () => {
+    if (!selected) { alert("Pick your name first."); return; }
+    const payload = {
+      appId, year: YEAR, who: selected.name, email: selected.email,
+      most: compressRanks(most),
+      least: compressRanks(least),
+      ts: serverTimestamp(),
+    };
+    try {
+      await setDoc(doc(db, "prefs", `${YEAR}-${selected.name}`), payload);
+      alert("Saved to Firestore.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save.");
+    }
+  };
+
+  /**************
+    MODE: Calendar
+  **************/
+  function CalendarMode() {
+    const [active, setActive] = useState(null); // {date, monthKey}
+    const [svc, setSvc] = useState("");
+
+    const onPickDay = (mkey, d) => {
+      // if only one service available → auto-pick
+      const avail = getAvailableServicesForDate(d.date);
+      if (avail.length === 1) {
+        const res = addTo("most", d.date, avail[0]);
+        if (!res.ok) alert(res.msg);
+        return;
+      }
+      setActive({ date: d.date, mkey });
+    };
+
+    const confirm = (choice = "most") => {
+      const res = addTo(choice, active.date, svc || null);
+      if (!res.ok) alert(res.msg);
+      setActive(null); setSvc("");
+    };
+
+    return (
+      <div>
+        <p className="text-sm text-slate-600 mb-3">Click a weekend → choose service (auto-filled if only one open) → choose list. Clearing any choice re-compresses ranks.</p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {MONTH_KEYS.map((mk, i) => (
+            <div key={mk} className="rounded-xl border p-3">
+              <div className="font-semibold mb-2">{MONTH_FULL[i]}</div>
+              <div className="grid grid-cols-2 gap-2">
+                {months[mk].map((d) => {
+                  const taken = d.isTaken;
+                  const avail = getAvailableServicesForDate(d.date);
                   return (
-                    <div key={id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div style={{ fontWeight: 800, fontSize: 16 }}>{MONTH_FULL[i]} {new Date(id).getDate()}</div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 13 }}>
-                          <span style={{ background: w.rni === null ? "#dbeafe" : "#e5e7eb", padding: "3px 8px", borderRadius: 8 }}>
-                            RNI: {w.rni === null ? "OPEN" : <b>{w.rni}</b>}
-                          </span>
-                          <span style={{ background: w.coa === null ? "#e0e7ff" : "#e5e7eb", padding: "3px 8px", borderRadius: 8 }}>
-                            COA: {w.coa === null ? "OPEN" : <b>{w.coa}</b>}
-                          </span>
-                          {w.detail && <span style={{ background: "#fff7ed", border: "1px solid #fed7aa", color: "#7c2d12", padding: "3px 8px", borderRadius: 8 }}>{w.detail}</span>}
-                        </div>
+                    <button
+                      key={d.date}
+                      disabled={taken}
+                      onClick={() => onPickDay(mk, d)}
+                      className={`text-left border rounded-lg p-2 ${taken ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}`}
+                    >
+                      <div className="text-sm font-medium">{d.day} <span className="text-slate-500">({d.date})</span></div>
+                      {d.detail && <div className="text-[11px] text-slate-500">{d.detail}</div>}
+                      <div className="mt-1 text-[11px]">
+                        {avail.length === 0 && <Pill>Full</Pill>}
+                        {avail.includes(SERVICES.RNI) && <Pill>RNI open</Pill>}
+                        {avail.includes(SERVICES.COA) && <Pill>COA open</Pill>}
                       </div>
-
-                      {!fullyAssigned ? (
-                        <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                          {/* MOST */}
-                          <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Most (service + choice)</div>
-                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                              {/* Service radios only for AVAILABLE services */}
-                              <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.RNI) ? 1 : 0.4 }}>
-                                <input
-                                  type="radio"
-                                  name={`most-${id}`}
-                                  disabled={!avail.includes(SERVICES.RNI) || submitted}
-                                  checked={p.mostService === SERVICES.RNI}
-                                  onChange={() => setMostSafe("svc", SERVICES.RNI)}
-                                />
-                                RNI
-                              </label>
-                              <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.COA) ? 1 : 0.4 }}>
-                                <input
-                                  type="radio"
-                                  name={`most-${id}`}
-                                  disabled={!avail.includes(SERVICES.COA) || submitted}
-                                  checked={p.mostService === SERVICES.COA}
-                                  onChange={() => setMostSafe("svc", SERVICES.COA)}
-                                />
-                                COA
-                              </label>
-                              <select
-                                disabled={submitted || p.mostService === SERVICES.NONE}
-                                value={String(p.mostChoice || 0)}
-                                onChange={(e) => setMostSafe("choice", parseInt(e.target.value, 10))}
-                                style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #e5e7eb" }}
-                              >
-                                <option value="0">Choice…</option>
-                                {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                                  <option key={n} value={n}>{n}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* LEAST */}
-                          <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least (service + choice)</div>
-                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                              <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.RNI) ? 1 : 0.4 }}>
-                                <input
-                                  type="radio"
-                                  name={`least-${id}`}
-                                  disabled={!avail.includes(SERVICES.RNI) || submitted}
-                                  checked={p.leastService === SERVICES.RNI}
-                                  onChange={() => setLeastSafe("svc", SERVICES.RNI)}
-                                />
-                                RNI
-                              </label>
-                              <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.COA) ? 1 : 0.4 }}>
-                                <input
-                                  type="radio"
-                                  name={`least-${id}`}
-                                  disabled={!avail.includes(SERVICES.COA) || submitted}
-                                  checked={p.leastService === SERVICES.COA}
-                                  onChange={() => setLeastSafe("svc", SERVICES.COA)}
-                                />
-                                COA
-                              </label>
-                              <select
-                                disabled={submitted || p.leastService === SERVICES.NONE}
-                                value={String(p.leastChoice || 0)}
-                                onChange={(e) => setLeastSafe("choice", parseInt(e.target.value, 10))}
-                                style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #e5e7eb" }}
-                              >
-                                <option value="0">Choice…</option>
-                                {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                                  <option key={n} value={n}>{n}</option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: 12, fontWeight: 800, color: "#991b1b", background: "#fee2e2", padding: 8, borderRadius: 8, textAlign: "center", marginTop: 8 }}>
-                          FULLY ASSIGNED — NO RANKING AVAILABLE
-                        </div>
-                      )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* =========================================================
-   MODE 2: QUICK ADD (Jan → Dec order; fewer clicks)
-========================================================= */
-function QuickAddMode({ prefs, setMost, setLeast, submitted }) {
-  const container = { maxWidth: 1200, margin: "0 auto", padding: "0 16px 24px" };
-  const rowCss = { border: "1px solid #e5e7eb", borderRadius: 10, padding: 10 };
-
-  const sorted = weekendsFlat.slice(); // already Jan→Dec
-  return (
-    <div style={container}>
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>QuickAdd — Instructions</div>
-        <div style={{ fontSize: 13, color: "#334155" }}>
-          Click a weekend row and set <b>Most</b> or <b>Least</b> with a service. Choice number grows automatically; change it if you need.
-        </div>
-      </div>
-      <div style={{ display: "grid", gap: 10, gridTemplateColumns: "1fr 1fr" }}>
-        {sorted.map(w => {
-          const id = w.id;
-          const p = prefs[id] || { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
-          const avail = availabilityByWeekend[id] || [];
-
-          const setAuto = (bucket) => {
-            if (submitted || avail.length === 0) return;
-            const svc = avail.length === 1 ? avail[0] : null;
-            if (!svc) return; // require manual radio if 2 open
-            if (bucket === "MOST") {
-              const next = { ...p, mostService: svc, mostChoice: (p.mostChoice > 0 ? p.mostChoice : 1) };
-              setMost(id, next);
-            } else {
-              const next = { ...p, leastService: svc, leastChoice: (p.leastChoice > 0 ? p.leastChoice : 1) };
-              setLeast(id, next);
-            }
-          };
-
-          return (
-            <div key={id} style={rowCss}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <div style={{ fontWeight: 800 }}>{w.monthName} {new Date(id).getDate()}</div>
-                <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
-                  <span style={{ background: w.rni === null ? "#dbeafe" : "#e5e7eb", padding: "2px 6px", borderRadius: 8 }}>
-                    RNI: {w.rni === null ? "OPEN" : <b>{w.rni}</b>}
-                  </span>
-                  <span style={{ background: w.coa === null ? "#e0e7ff" : "#e5e7eb", padding: "2px 6px", borderRadius: 8 }}>
-                    COA: {w.coa === null ? "OPEN" : <b>{w.coa}</b>}
-                  </span>
-                  {w.detail && <span style={{ background: "#fff7ed", border: "1px solid #fed7aa", padding: "2px 6px", borderRadius: 8 }}>{w.detail}</span>}
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gap: 8, gridTemplateColumns: "1fr 1fr" }}>
-                {/* MOST quick controls */}
-                <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Most</div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      onClick={() => setAuto("MOST")}
-                      disabled={submitted || avail.length !== 1}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                      title={avail.length === 1 ? "Auto-pick the only open service" : "Two services open — choose below"}
-                    >
-                      Auto
-                    </button>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.RNI) ? 1 : 0.4 }}>
-                      <input
-                        type="radio"
-                        name={`mostq-${id}`}
-                        disabled={!avail.includes(SERVICES.RNI) || submitted}
-                        checked={p.mostService === SERVICES.RNI}
-                        onChange={() => setMost(id, { ...p, mostService: SERVICES.RNI, mostChoice: p.mostChoice || 1 })}
-                      />
-                      RNI
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.COA) ? 1 : 0.4 }}>
-                      <input
-                        type="radio"
-                        name={`mostq-${id}`}
-                        disabled={!avail.includes(SERVICES.COA) || submitted}
-                        checked={p.mostService === SERVICES.COA}
-                        onChange={() => setMost(id, { ...p, mostService: SERVICES.COA, mostChoice: p.mostChoice || 1 })}
-                      />
-                      COA
-                    </label>
-                    <select
-                      disabled={submitted || p.mostService === SERVICES.NONE}
-                      value={String(p.mostChoice || 0)}
-                      onChange={(e) => setMost(id, { ...p, mostChoice: parseInt(e.target.value, 10) })}
-                      style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #e5e7eb" }}
-                    >
-                      <option value="0">Choice…</option>
-                      {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* LEAST quick controls */}
-                <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Least</div>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                    <button
-                      onClick={() => setAuto("LEAST")}
-                      disabled={submitted || avail.length !== 1}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                    >
-                      Auto
-                    </button>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.RNI) ? 1 : 0.4 }}>
-                      <input
-                        type="radio"
-                        name={`leastq-${id}`}
-                        disabled={!avail.includes(SERVICES.RNI) || submitted}
-                        checked={p.leastService === SERVICES.RNI}
-                        onChange={() => setLeast(id, { ...p, leastService: SERVICES.RNI, leastChoice: p.leastChoice || 1 })}
-                      />
-                      RNI
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: 4, opacity: avail.includes(SERVICES.COA) ? 1 : 0.4 }}>
-                      <input
-                        type="radio"
-                        name={`leastq-${id}`}
-                        disabled={!avail.includes(SERVICES.COA) || submitted}
-                        checked={p.leastService === SERVICES.COA}
-                        onChange={() => setLeast(id, { ...p, leastService: SERVICES.COA, leastChoice: p.leastChoice || 1 })}
-                      />
-                      COA
-                    </label>
-                    <select
-                      disabled={submitted || p.leastService === SERVICES.NONE}
-                      value={String(p.leastChoice || 0)}
-                      onChange={(e) => setLeast(id, { ...p, leastChoice: parseInt(e.target.value, 10) })}
-                      style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #e5e7eb" }}
-                    >
-                      <option value="0">Choice…</option>
-                      {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   MODE 3: DRAG BUCKETS (horizontal, grouped by month)
-========================================================= */
-function DragBucketsMode({ prefs, setMost, setLeast, submitted, requireName }) {
-  const container = { maxWidth: 1200, margin: "0 auto", padding: "0 16px 24px" };
-
-  // Library lanes: one horizontal lane per month
-  const lanes = useMemo(() => {
-    const byMonth = {};
-    for (const mk of MONTH_KEYS) byMonth[mk] = [];
-    for (const w of weekendsFlat) {
-      const avail = availabilityByWeekend[w.id] || [];
-      avail.forEach(svc => {
-        byMonth[w.monthKey].push({
-          id: w.id,
-          svc,
-          label: `${w.monthName} ${new Date(w.id).getDate()} — ${svc}`,
-        });
-      });
-    }
-    return byMonth;
-  }, []);
-
-  // current lists
-  const mostChosen = useMemo(() => {
-    const arr = [];
-    for (const [id, p] of Object.entries(prefs)) {
-      if (p.mostService !== SERVICES.NONE && (p.mostChoice || 0) > 0) {
-        arr.push({ id, service: p.mostService, choice: p.mostChoice });
-      }
-    }
-    arr.sort((a,b) => a.choice - b.choice || allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id));
-    return arr;
-  }, [prefs]);
-  const leastChosen = useMemo(() => {
-    const arr = [];
-    for (const [id, p] of Object.entries(prefs)) {
-      if (p.leastService !== SERVICES.NONE && (p.leastChoice || 0) > 0) {
-        arr.push({ id, service: p.leastService, choice: p.leastChoice });
-      }
-    }
-    arr.sort((a,b) => a.choice - b.choice || allWeekendIds.indexOf(a.id) - allWeekendIds.indexOf(b.id));
-    return arr;
-  }, [prefs]);
-
-  const onDropMost  = (id, svc) => {
-    if (submitted || !requireName) return;
-    const avail = availabilityByWeekend[id] || [];
-    if (!avail.includes(svc)) return;
-    setMost(id,  { ...(prefs[id] || {}), mostService: svc,  mostChoice: nextChoiceNumber(mostChosen) });
-    // prevent same-day both services within same bucket is by definition impossible (single service field)
-  };
-  const onDropLeast = (id, svc) => {
-    if (submitted || !requireName) return;
-    const avail = availabilityByWeekend[id] || [];
-    if (!avail.includes(svc)) return;
-    setLeast(id, { ...(prefs[id] || {}), leastService: svc, leastChoice: nextChoiceNumber(leastChosen) });
-  };
-
-  const removeMost  = (id) => setMost(id,  { ...(prefs[id] || {}), mostService: SERVICES.NONE,  mostChoice: 0 });
-  const removeLeast = (id) => setLeast(id, { ...(prefs[id] || {}), leastService: SERVICES.NONE, leastChoice: 0 });
-
-  const laneCss = { whiteSpace: "nowrap", overflowX: "auto", padding: "8px 10px", border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff" };
-  const chipCss = {
-    display: "inline-block", marginRight: 8, marginBottom: 8,
-    padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12,
-    cursor: (submitted || !requireName) ? "not-allowed" : "grab", userSelect: "none",
-  };
-
-  return (
-    <div style={container}>
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>DragBuckets — Instructions</div>
-        <div style={{ fontSize: 13, color: "#334155" }}>
-          Drag any chip from the monthly lanes into <b>Most</b> or <b>Least</b>. Choices auto-number in order. Click “Remove” to undo.
-        </div>
-      </div>
-
-      {/* Library lanes (one per month, horizontal) */}
-      <div style={{ display: "grid", gap: 10 }}>
-        {MONTH_KEYS.map((mk, i) => (
-          <div key={mk}>
-            <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 4 }}>{MONTH_FULL[i]} {YEAR}</div>
-            <div style={laneCss}>
-              {(lanes[mk] || []).map(item => (
-                <span
-                  key={`${item.id}:${item.svc}`}
-                  draggable={!submitted && requireName}
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/plain", JSON.stringify(item));
-                    e.dataTransfer.effectAllowed = "move";
-                  }}
-                  title={requireName ? "Drag to Most/Least" : "Select your name first"}
-                  style={chipCss}
-                >
-                  {item.label}
-                </span>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Drop zones side-by-side */}
-      <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr 1fr", marginTop: 16 }}>
-        <div
-          onDragOver={(e) => { if (!submitted && requireName) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
-          onDrop={(e) => {
-            if (submitted || !requireName) return;
-            e.preventDefault();
-            try { const item = JSON.parse(e.dataTransfer.getData("text/plain")); onDropMost(item.id, item.svc); } catch {}
-          }}
-          style={{ border: "2px dashed #10b981", borderRadius: 12, background: "#ecfdf5", padding: 12 }}
-        >
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Most (drop here)</div>
-          {mostChosen.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#6b7280" }}>— empty —</div>
-          ) : mostChosen.map((m, idx) => (
-            <div key={`M-${idx}`} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-              <span style={{ padding: "3px 8px", borderRadius: 8, background: "#d1fae5", border: "1px solid #10b98133", fontSize: 12 }}>#{m.choice}</span>
-              <span style={{ fontSize: 13 }}>{monthLabel(m.id)} — {m.service}</span>
-              <button onClick={() => removeMost(m.id)} style={{ marginLeft: "auto", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "2px 6px" }}>
-                Remove
-              </button>
             </div>
           ))}
         </div>
 
-        <div
-          onDragOver={(e) => { if (!submitted && requireName) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
-          onDrop={(e) => {
-            if (submitted || !requireName) return;
-            e.preventDefault();
-            try { const item = JSON.parse(e.dataTransfer.getData("text/plain")); onDropLeast(item.id, item.svc); } catch {}
-          }}
-          style={{ border: "2px dashed #ef4444", borderRadius: 12, background: "#fef2f2", padding: 12 }}
-        >
-          <div style={{ fontWeight: 800, marginBottom: 6 }}>Least (drop here)</div>
-          {leastChosen.length === 0 ? (
-            <div style={{ fontSize: 12, color: "#6b7280" }}>— empty —</div>
-          ) : leastChosen.map((m, idx) => (
-            <div key={`L-${idx}`} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-              <span style={{ padding: "3px 8px", borderRadius: 8, background: "#fee2e2", border: "1px solid #ef444433", fontSize: 12 }}>#{m.choice}</span>
-              <span style={{ fontSize: 13 }}>{monthLabel(m.id)} — {m.service}</span>
-              <button onClick={() => removeLeast(m.id)} style={{ marginLeft: "auto", fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "2px 6px" }}>
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {!requireName && (
-        <div style={{ marginTop: 8, fontSize: 12, color: "#991b1b", background: "#fee2e2", border: "1px solid #fecaca", padding: "6px 8px", borderRadius: 8 }}>
-          Select your name above to enable drag & drop.
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* =========================================================
-   MODE 4: RANK BOARD (click to add; explicit controls)
-========================================================= */
-function RankBoardMode({ prefs, setMost, setLeast, submitted }) {
-  const container = { maxWidth: 1200, margin: "0 auto", padding: "0 16px 24px" };
-
-  const handleAdd = (id, bucket, svc) => {
-    const avail = availabilityByWeekend[id] || [];
-    if (!avail.includes(svc) || submitted) return;
-    const list = bucket === "MOST"
-      ? Object.values(prefs).filter(p => p.mostService !== SERVICES.NONE && (p.mostChoice||0) > 0).map(p => ({ choice: p.mostChoice }))
-      : Object.values(prefs).filter(p => p.leastService !== SERVICES.NONE && (p.leastChoice||0) > 0).map(p => ({ choice: p.leastChoice }));
-    const next = nextChoiceNumber(list);
-    if (bucket === "MOST") setMost(id, { ...(prefs[id]||{}), mostService: svc, mostChoice: next });
-    else setLeast(id, { ...(prefs[id]||{}), leastService: svc, leastChoice: next });
-  };
-
-  return (
-    <div style={container}>
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 12, marginBottom: 12 }}>
-        <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 6 }}>RankBoard — Instructions</div>
-        <div style={{ fontSize: 13, color: "#334155" }}>
-          Click a button in a weekend card to add it to <b>Most</b> or <b>Least</b> with the selected service.
-          Choice numbers increment automatically; use the small selector to adjust if needed.
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}>
-        {weekendsFlat.map(w => {
-          const id = w.id;
-          const p  = prefs[id] || { mostService: SERVICES.NONE, mostChoice: 0, leastService: SERVICES.NONE, leastChoice: 0 };
-          const avail = availabilityByWeekend[id] || [];
-
-          return (
-            <div key={id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 10 }}>
-              <div style={{ fontWeight: 800, marginBottom: 6 }}>{w.monthName} {new Date(id).getDate()}</div>
-              <div style={{ fontSize: 12, marginBottom: 8 }}>
-                <span style={{ background: w.rni === null ? "#dbeafe" : "#e5e7eb", padding: "2px 6px", borderRadius: 8, marginRight: 6 }}>
-                  RNI: {w.rni === null ? "OPEN" : <b>{w.rni}</b>}
-                </span>
-                <span style={{ background: w.coa === null ? "#e0e7ff" : "#e5e7eb", padding: "2px 6px", borderRadius: 8 }}>
-                  COA: {w.coa === null ? "OPEN" : <b>{w.coa}</b>}
-                </span>
+        {active && (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-4 w-full max-w-md">
+              <div className="font-semibold mb-2">{active.date}</div>
+              <div className="flex gap-2 mb-3">
+                <select value={svc} onChange={(e) => setSvc(e.target.value)} className="border rounded px-2 py-1">
+                  <option value="">Pick service</option>
+                  {getAvailableServicesForDate(active.date).map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
               </div>
-
-              {/* Choose service then add */}
-              <div style={{ display: "grid", gap: 8 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, width: 40 }}>Most:</span>
-                  {avail.includes(SERVICES.RNI) && (
-                    <button
-                      disabled={submitted}
-                      onClick={() => handleAdd(id, "MOST", SERVICES.RNI)}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                    >
-                      + RNI
-                    </button>
-                  )}
-                  {avail.includes(SERVICES.COA) && (
-                    <button
-                      disabled={submitted}
-                      onClick={() => handleAdd(id, "MOST", SERVICES.COA)}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                    >
-                      + COA
-                    </button>
-                  )}
-                  {p.mostChoice > 0 && (
-                    <>
-                      <select
-                        value={String(p.mostChoice)}
-                        onChange={(e) => setMost(id, { ...p, mostChoice: parseInt(e.target.value, 10) })}
-                        style={{ marginLeft: "auto", padding: "4px 8px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }}
-                      >
-                        {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
-                      <button onClick={() => setMost(id, { ...p, mostService: SERVICES.NONE, mostChoice: 0 })} style={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "2px 6px" }}>
-                        Remove
-                      </button>
-                    </>
-                  )}
-                </div>
-
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, width: 40 }}>Least:</span>
-                  {avail.includes(SERVICES.RNI) && (
-                    <button
-                      disabled={submitted}
-                      onClick={() => handleAdd(id, "LEAST", SERVICES.RNI)}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                    >
-                      + RNI
-                    </button>
-                  )}
-                  {avail.includes(SERVICES.COA) && (
-                    <button
-                      disabled={submitted}
-                      onClick={() => handleAdd(id, "LEAST", SERVICES.COA)}
-                      style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-                    >
-                      + COA
-                    </button>
-                  )}
-                  {p.leastChoice > 0 && (
-                    <>
-                      <select
-                        value={String(p.leastChoice)}
-                        onChange={(e) => setLeast(id, { ...p, leastChoice: parseInt(e.target.value, 10) })}
-                        style={{ marginLeft: "auto", padding: "4px 8px", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }}
-                      >
-                        {Array.from({ length: allWeekendIds.length }, (_, n) => n + 1).map(n => (
-                          <option key={n} value={n}>{n}</option>
-                        ))}
-                      </select>
-                      <button onClick={() => setLeast(id, { ...p, leastService: SERVICES.NONE, leastChoice: 0 })} style={{ fontSize: 12, border: "1px solid #e5e7eb", borderRadius: 8, padding: "2px 6px" }}>
-                        Remove
-                      </button>
-                    </>
-                  )}
-                </div>
+              <div className="flex gap-2 justify-end">
+                <button className="px-3 py-1 bg-slate-100 rounded" onClick={() => { setActive(null); setSvc(""); }}>Cancel</button>
+                <button className="px-3 py-1 bg-emerald-600 text-white rounded" onClick={() => confirm("most")}>Add to Most</button>
+                <button className="px-3 py-1 bg-amber-600 text-white rounded" onClick={() => confirm("least")}>Add to Least</button>
               </div>
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================
-   APP (unified switcher + command palette link + firebase badge)
-========================================================= */
-export default function App() {
-  const [uid, setUid] = useState(null);
-  const [status, setStatus] = useState("Authenticating…");
-  const [profile, setProfile] = useState({ name: "", email: "" });
-  const [prefs, setPrefs] = useState(initEmptyPrefs());
-  const [submitted, setSubmitted] = useState(false);
-  const [collapsed, setCollapsed] = useState(() => Object.fromEntries(MONTH_KEYS.map(mk => [mk, true])));
-
-  // mode switcher (via tabs; also respects ?ui=)
-  const uiFromQuery = new URLSearchParams(window.location.search).get("ui");
-  const initialMode = ["calendar","drag","quick","rank"].includes(uiFromQuery) ? uiFromQuery : "calendar";
-  const [mode, setMode] = useState(initialMode);
-
-  // Firebase badge
-  const [fbOk, setFbOk] = useState(null); // null=unknown, true/false
-
-  useEffect(() => {
-    (async () => {
-      try {
-        await signInAnonymously(auth);
-        onAuthStateChanged(auth, (u) => {
-          if (u) setUid(u.uid);
-        });
-        // ping a harmless read to test connectivity
-        try {
-          const testRef = doc(collection(db, "diagnostics"), "ping");
-          await getDoc(testRef); // may 404; we only care that it didn't throw due to network/config
-          setFbOk(true);
-        } catch {
-          setFbOk(true); // even if doc missing, Firestore works
-        }
-        setStatus("Ready.");
-      } catch (e) {
-        console.error(e);
-        setStatus(`Auth error: ${e?.message || e}`);
-        setFbOk(false);
-      }
-    })();
-  }, []);
-
-  // Persist/Load user’s profile & prefs
-  const profileDocRef = (uidX) => doc(collection(db, "artifacts", appId, "users", uidX, "profile"), "current");
-  const prefsDocRef   = (uidX) => doc(collection(db, "artifacts", appId, "users", uidX, "preferences"), "calendar-preferences");
-
-  useEffect(() => {
-    if (!uid) return;
-    (async () => {
-      try {
-        const [proSnap, prefSnap] = await Promise.all([getDoc(profileDocRef(uid)), getDoc(prefsDocRef(uid))]);
-        if (proSnap.exists()) {
-          const d = proSnap.data();
-          setProfile({ name: d.name || "", email: d.email || "" });
-        }
-        if (prefSnap.exists()) {
-          const d = prefSnap.data();
-          setSubmitted(Boolean(d.submitted));
-          if (d.preferences) {
-            const remap = { ...initEmptyPrefs() };
-            for (const [k,v] of Object.entries(d.preferences || {})) {
-              remap[k] = {
-                mostService:  v.mostService  ?? SERVICES.NONE,
-                mostChoice:   v.mostChoice   ?? v.mostRank   ?? 0,
-                leastService: v.leastService ?? SERVICES.NONE,
-                leastChoice:  v.leastChoice  ?? v.leastRank  ?? 0,
-              };
-            }
-            setPrefs(remap);
-          }
-        }
-      } catch (e) {
-        console.error(e);
-        setStatus(`Load error: ${e?.message || e}`);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid]);
-
-  const saveProfile = async (next) => {
-    setProfile(next);
-    if (!uid) return;
-    await setDoc(profileDocRef(uid), { ...next, updatedAt: serverTimestamp() }, { merge: true });
-  };
-
-  // Centralized setters enforcing the “no RNI+COA on same day within the same bucket” naturally by single field.
-  const setMost = useCallback((id, v) => {
-    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), mostService: v.mostService, mostChoice: v.mostChoice } }));
-  }, []);
-  const setLeast = useCallback((id, v) => {
-    setPrefs(prev => ({ ...prev, [id]: { ...(prev[id] || {}), leastService: v.leastService, leastChoice: v.leastChoice } }));
-  }, []);
-
-  // Top controls
-  const jumpTo = (mk) => {
-    setCollapsed(prev => {
-      const next = { ...prev, [mk]: false };
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`month-${mk}`);
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-      });
-      return next;
-    });
-  };
-  const collapseAll = (val) => setCollapsed(Object.fromEntries(MONTH_KEYS.map(k => [k, val])));
-
-  // Export helpers
-  const assembleRows = useCallback(() => {
-    const rows = [];
-    for (const id of allWeekendIds) {
-      const p = prefs[id];
-      if (!p) continue;
-      if (p.mostService !== SERVICES.NONE && (p.mostChoice || 0) > 0) {
-        rows.push({ attendee: profile.name, email: profile.email || "", kind: "MOST",  choice: p.mostChoice, service: p.mostService, weekend: id });
-      }
-      if (p.leastService !== SERVICES.NONE && (p.leastChoice || 0) > 0) {
-        rows.push({ attendee: profile.name, email: profile.email || "", kind: "LEAST", choice: p.leastChoice, service: p.leastService, weekend: id });
-      }
-    }
-    return rows;
-  }, [prefs, profile]);
-
-  const downloadMyCSV = () => {
-    const rows = assembleRows();
-    const fn = submitted ? `preferences_${profile.name || "attending"}.csv` : `preferences_preview_${profile.name || "attending"}.csv`;
-    const csv = toCSV(rows);
-    if (csv) downloadBlob(fn, "text/csv;charset=utf-8;", csv);
-  };
-  const downloadMyWord = () => {
-    const rows = assembleRows();
-    const top = rows.filter(r => r.kind === "MOST").sort((a,b) => a.choice - b.choice);
-    const low = rows.filter(r => r.kind === "LEAST").sort((a,b) => a.choice - b.choice);
-    const esc = (s) => String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-    const tr = (k,r) => `<tr><td>${k}</td><td>${esc(r.choice)}</td><td>${esc(r.service)}</td><td>${esc(monthLabel(r.weekend))}</td></tr>`;
-    const html = `
-      <html><head><meta charset="utf-8"><title>Preferences</title></head><body>
-      <h2>2026 Weekend Preferences</h2>
-      <p><b>Name:</b> ${esc(profile.name||"")} &nbsp; <b>Email:</b> ${esc(profile.email||"")}</p>
-      <table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
-      <thead><tr><th>Kind</th><th>Choice #</th><th>Service</th><th>Weekend</th></tr></thead><tbody>
-      ${top.map(r => tr("MOST", r)).join("")}
-      ${low.map(r => tr("LEAST", r)).join("")}
-      </tbody></table>
-      <p style="font-size:12px;color:#555;margin-top:12px;">Generated on ${new Date().toLocaleString()}</p>
-      </body></html>
-    `;
-    const fn = submitted ? `preferences_${profile.name || "attending"}.doc` : `preferences_preview_${profile.name || "attending"}.doc`;
-    downloadBlob(fn, "application/msword", html);
-  };
-
-  const submitFinal = async () => {
-    if (!uid || !profile.name) { alert("Select your name first."); return; }
-    // ensure Least entries have a service (we already enforce by radios)
-    const badLeast = Object.values(prefs).some(p => (p?.leastChoice||0) > 0 && p.leastService === SERVICES.NONE);
-    if (badLeast) { alert("For every ‘Least’ choice, please select a service (RNI or COA)."); return; }
-    await setDoc(prefsDocRef(uid), {
-      name: profile.name,
-      email: profile.email || "",
-      preferences: Object.fromEntries(Object.entries(prefs).map(([k,v]) => [k, {
-        mostService: v.mostService, mostChoice: v.mostChoice, mostRank: v.mostChoice,
-        leastService: v.leastService, leastChoice: v.leastChoice, leastRank: v.leastChoice,
-      }])),
-      submitted: true,
-      submittedAt: serverTimestamp(),
-      lastUpdated: serverTimestamp(),
-    }, { merge: true });
-    setSubmitted(true);
-    alert("Preferences submitted and locked.");
-  };
-
-  // Layout wrappers for centering + gutters
-  const page = { minHeight: "100vh", background: "#f8fafc" };
-  const stickyBar = {
-    position: "sticky", top: 0, zIndex: 40,
-    background: "#ffffffcc", backdropFilter: "saturate(180%) blur(4px)",
-    borderBottom: "1px solid #e5e7eb",
-  };
-  const stickyInner = {
-    maxWidth: 1200, margin: "0 auto", padding: "8px 16px",
-    display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap",
-  };
-
-  const badge = fbOk == null
-    ? { text: "Firebase: …", bg: "#f3f4f6", br: "#e5e7eb", fg: "#374151" }
-    : fbOk
-      ? { text: "Firebase ✓", bg: "#d1fae5", br: "#10b981", fg: "#065f46" }
-      : { text: "Firebase ✗", bg: "#fee2e2", br: "#ef4444", fg: "#7f1d1d" };
-
-  const disableUntilName = !profile.name;
-
-  return (
-    <div style={page}>
-      {/* Sticky top: mode switch + jump + badge + preview buttons */}
-      <div style={stickyBar}>
-        <div style={stickyInner}>
-          {/* Mode tabs */}
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            {[
-              ["calendar","Calendar"],
-              ["drag","DragBuckets"],
-              ["quick","QuickAdd"],
-              ["rank","RankBoard"],
-            ].map(([val,label]) => (
-              <button
-                key={val}
-                onClick={() => setMode(val)}
-                style={{
-                  padding: "6px 10px", borderRadius: 999,
-                  border: mode === val ? "1px solid #111827" : "1px solid #e5e7eb",
-                  background: mode === val ? "#111827" : "#fff",
-                  color: mode === val ? "#fff" : "#111827", fontSize: 12,
-                }}
-              >
-                {label}
-              </button>
-            ))}
           </div>
+        )}
+      </div>
+    );
+  }
 
-          {/* Jump bar (Calendar useful) */}
-          <div style={{ display: "flex", gap: 6, marginLeft: 12, flexWrap: "wrap" }}>
-            <strong style={{ fontSize: 12 }}>Jump:</strong>
+  /**************
+    MODE: QuickAdd
+  **************/
+  function QuickAddMode() {
+    const [mkey, setMkey] = useState("01");
+    const [date, setDate] = useState("");
+    const [service, setService] = useState("");
+    const [bucket, setBucket] = useState("most"); // or 'least'
+
+    const saturdays = months[mkey];
+
+    useEffect(() => {
+      setDate(""); setService("");
+    }, [mkey]);
+
+    const onAdd = () => {
+      const res = addTo(bucket, date, service || null);
+      if (!res.ok) alert(res.msg);
+    };
+
+    return (
+      <div>
+        <p className="text-sm text-slate-600 mb-3">Fast form: Month → Saturday → Service → Add to “Most” or “Least”. Defaults to next available rank; ranks normalize after any add/remove.</p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          <select className="border rounded px-2 py-1" value={mkey} onChange={(e) => setMkey(e.target.value)}>
             {MONTH_KEYS.map((mk, i) => (
-              <button
-                key={mk}
-                onClick={() => jumpTo(mk)}
-                style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}
-              >
-                {MONTH_FULL[i].slice(0,3)}
-              </button>
+              <option key={mk} value={mk}>{MONTH_FULL[i]}</option>
             ))}
-            <button onClick={() => collapseAll(true)}  style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}>Collapse</button>
-            <button onClick={() => collapseAll(false)} style={{ padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", background: "#fff", fontSize: 12 }}>Expand</button>
+          </select>
+          <select className="border rounded px-2 py-1" value={date} onChange={(e) => setDate(e.target.value)}>
+            <option value="">Pick Saturday</option>
+            {saturdays.map((d) => (
+              <option key={d.date} value={d.date} disabled={d.isTaken}>{d.date}{d.isTaken ? " (full)" : ""}</option>
+            ))}
+          </select>
+          <select className="border rounded px-2 py-1" value={service} onChange={(e) => setService(e.target.value)}>
+            <option value="">Pick service</option>
+            {(date ? getAvailableServicesForDate(date) : [SERVICES.RNI, SERVICES.COA]).map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <select className="border rounded px-2 py-1" value={bucket} onChange={(e) => setBucket(e.target.value)}>
+            <option value="most">Most</option>
+            <option value="least">Least</option>
+          </select>
+          <button className="px-3 py-1 bg-emerald-600 text-white rounded" onClick={onAdd}>Add</button>
+        </div>
+      </div>
+    );
+  }
+
+  /**************
+    MODE: RankBoard (click = Most, Shift+Click = Least or use toggle)
+  **************/
+  function RankBoardMode() {
+    const [toLeast, setToLeast] = useState(false);
+
+    const handleClick = (date, e) => {
+      const bucket = e.shiftKey || toLeast ? "least" : "most";
+      const avail = getAvailableServicesForDate(date);
+      const service = avail.length === 1 ? avail[0] : null;
+      const res = addTo(bucket, date, service);
+      if (!res.ok) alert(res.msg);
+    };
+
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-slate-600">Click = Most; Shift+Click (or toggle) = Least. Badges show available service(s); invalid clicks are blocked.</p>
+          <label className="text-sm flex items-center gap-2">
+            <input type="checkbox" checked={toLeast} onChange={(e) => setToLeast(e.target.checked)} />
+            Send clicks to Least
+          </label>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {MONTH_KEYS.map((mk, i) => (
+            <div key={mk} className="rounded-xl border p-3">
+              <div className="font-semibold mb-2">{MONTH_FULL[i]}</div>
+              <div className="grid grid-cols-2 gap-2">
+                {months[mk].map((d) => {
+                  const taken = d.isTaken;
+                  const avail = getAvailableServicesForDate(d.date);
+                  return (
+                    <button
+                      key={d.date}
+                      disabled={taken || avail.length === 0}
+                      onClick={(e) => handleClick(d.date, e)}
+                      className={`text-left border rounded-lg p-2 ${taken || avail.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}`}
+                    >
+                      <div className="text-sm font-medium">{d.day} <span className="text-slate-500">({d.date})</span></div>
+                      {d.detail && <div className="text-[11px] text-slate-500">{d.detail}</div>}
+                      <div className="mt-1 text-[11px]">
+                        {avail.length === 0 && <Pill>Full</Pill>}
+                        {avail.includes(SERVICES.RNI) && <Pill>RNI</Pill>}
+                        {avail.includes(SERVICES.COA) && <Pill>COA</Pill>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /**************
+    MODE: DragBuckets (basic HTML5 drag/drop)
+  **************/
+  function DragBucketsMode() {
+    const [drag, setDrag] = useState(null); // {date}
+
+    const chips = useMemo(() => {
+      // chips grouped by month, only those not already present in lists
+      const chosenDates = new Set([...most, ...least].map(x => x.date));
+      return MONTH_KEYS.map((mk, i) => ({
+        mkey: mk,
+        label: MONTH_FULL[i],
+        items: months[mk].filter(d => !d.isTaken && !chosenDates.has(d.date)).map(d => ({ date: d.date }))
+      }));
+    }, [most, least]);
+
+    const onDropTo = (bucket) => {
+      if (!drag) return;
+      const avail = getAvailableServicesForDate(drag.date);
+      const service = avail.length === 1 ? avail[0] : null; // require explicit pick if both open
+      const res = addTo(bucket, drag.date, service);
+      if (!res.ok) alert(res.msg);
+      setDrag(null);
+    };
+
+    return (
+      <div className="grid lg:grid-cols-[1fr_1fr] gap-3">
+        {/* Left: available chips */}
+        <div>
+          <p className="text-sm text-slate-600 mb-2">Drag from Available into Most/Least. Chips regroup as you add/remove; ranks re-assign 1…N.</p>
+          <div className="space-y-3">
+            {chips.map(group => (
+              <div key={group.mkey}>
+                <div className="font-semibold mb-1">{group.label}</div>
+                <div className="flex gap-2 overflow-x-auto py-1">
+                  {group.items.map(it => (
+                    <div
+                      key={it.date}
+                      draggable
+                      onDragStart={() => setDrag({ date: it.date })}
+                      className="shrink-0 px-3 py-1 rounded-full border bg-white cursor-grab"
+                    >{it.date}</div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
+        </div>
 
-          {/* Firebase badge */}
-          <span style={{ marginLeft: "auto", padding: "4px 8px", borderRadius: 999, border: `1px solid ${badge.br}`, background: badge.bg, color: badge.fg, fontSize: 12 }}>
-            {badge.text}
-          </span>
-
-          {/* Preview buttons */}
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={downloadMyCSV}  style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #059669", background: "#10b981", color: "#fff", fontSize: 12 }}>
-              Preview CSV
-            </button>
-            <button onClick={downloadMyWord} style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid #4f46e5", background: "#6366f1", color: "#fff", fontSize: 12 }}>
-              Preview Word
-            </button>
+        {/* Right: buckets */}
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => onDropTo("most")}
+            className="rounded-xl border bg-slate-50 p-3 min-h-[160px]"
+          >
+            <div className="font-semibold mb-2">Most</div>
+            <ol className="space-y-1">
+              {compressRanks(most).map(x => (
+                <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+                  <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+                  <button className="text-xs text-rose-600" onClick={() => removeFrom("most", x.date, x.service)}>remove</button>
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={() => onDropTo("least")}
+            className="rounded-xl border bg-slate-50 p-3 min-h-[160px]"
+          >
+            <div className="font-semibold mb-2">Least</div>
+            <ol className="space-y-1">
+              {compressRanks(least).map(x => (
+                <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+                  <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+                  <button className="text-xs text-rose-600" onClick={() => removeFrom("least", x.date, x.service)}>remove</button>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       </div>
+    );
+  }
 
-      {/* Header / Identity / Live Preview */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "16px 16px 8px" }}>
-        <h1 style={{ fontSize: 24, fontWeight: 900, color: "#111827", marginBottom: 8 }}>2026 Preferences (RNI & COA)</h1>
+  /**************
+    TOP BAR + LAYOUT
+  **************/
+  const topBar = (
+    <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b">
+      <div className="max-w-6xl mx-auto px-3 py-2 flex items-center gap-2">
+        {/* Jump */}
+        <select className="border rounded px-2 py-1" value={mode} onChange={(e) => setMode(e.target.value)}>
+          <option value={MODES.CAL}>Calendar</option>
+          <option value={MODES.QA}>QuickAdd</option>
+          <option value={MODES.RB}>RankBoard</option>
+          <option value={MODES.DB}>DragBuckets</option>
+        </select>
 
-        <ol style={{ margin: "8px 0 12px", paddingLeft: 20, color: "#334155", fontSize: 14, lineHeight: 1.45, listStyle: "decimal" }}>
-          <li style={{ marginBottom: 4 }}>Select your name below. You will see the number of weekends you wanted.</li>
-          <li style={{ marginBottom: 4 }}>Use <b>Calendar</b>, <b>DragBuckets</b>, <b>QuickAdd</b>, or <b>RankBoard</b> to add as many <b>Most</b> and <b>Least</b> choices as you want. For each choice, select a <b>service</b> and a <b>choice #</b>.</li>
-          <li style={{ marginBottom: 4 }}>You can preview/download at any time. The live preview updates underneath.</li>
-          <li style={{ marginBottom: 4 }}>Submit to lock your preferences once you are done.</li>
-        </ol>
+        {/* Firebase badge */}
+        <span className="ml-auto text-[11px] px-2 py-1 rounded-full border bg-slate-50">{firebaseConfig.projectId}</span>
 
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
-          <label style={{ fontSize: 14, fontWeight: 700 }}>Your name:</label>
-          <select
-            value={profile.name}
-            onChange={(e) => {
-              const name = e.target.value;
-              const email = (ATTENDINGS.find(a => a.name === name)?.email) || profile.email;
-              saveProfile({ ...profile, name, email });
-            }}
-            style={{ padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 8, minWidth: 200, fontSize: 14 }}
-          >
-            <option value="">— Select —</option>
-            {ATTENDINGS.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-          </select>
+        {/* Preview Word (placeholder) */}
+        <button className="px-2 py-1 rounded border">Preview Word</button>
 
-          <label style={{ fontSize: 14, fontWeight: 700 }}>Email (optional):</label>
-          <input
-            type="email"
-            value={profile.email}
-            onChange={(e) => saveProfile({ ...profile, email: e.target.value })}
-            placeholder="you@uab.edu"
-            style={{ padding: "6px 10px", border: "1px solid #e5e7eb", borderRadius: 8, minWidth: 260, fontSize: 14 }}
-          />
+        {/* Submit */}
+        <button className="px-3 py-1 rounded bg-emerald-600 text-white" onClick={submit}>Submit</button>
+      </div>
+    </div>
+  );
 
-          {!!profile.name && (
-            <div style={{ marginTop: 6 }}>
-              {(() => {
-                const m = ATTENDING_LIMITS[profile.name];
-                return m ? (
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: "8px 10px", fontSize: 13 }}>
-                    <b>{profile.name}</b>
-                    <span>Requested: {m.requested}</span>
-                    <span>Claimed: {m.claimed}</span>
-                    <span>Left: {m.left}</span>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 13, color: "#7c2d12", background: "#ffedd5", border: "1px solid #fed7aa", borderRadius: 10, padding: "6px 8px" }}>
-                    Target numbers for “{profile.name}” are not set yet.
-                  </div>
-                );
-              })()}
-            </div>
+  // Command palette (Esc to close)
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); setCmdOpen((v) => !v); }
+      if (e.key === "Escape") setCmdOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const palette = cmdOpen && (
+    <div className="fixed inset-0 bg-black/30 p-4 flex items-start justify-center">
+      <div className="bg-white rounded-xl border w-full max-w-lg p-3">
+        <input
+          autoFocus
+          placeholder="Type: cal / qa / rb / drag / clear / submit"
+          className="w-full border rounded px-2 py-1 mb-2"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              const v = e.currentTarget.value.trim().toLowerCase();
+              if (v === "cal") setMode(MODES.CAL);
+              else if (v === "qa") setMode(MODES.QA);
+              else if (v === "rb") setMode(MODES.RB);
+              else if (v === "drag") setMode(MODES.DB);
+              else if (v === "clear") clearAll();
+              else if (v === "submit") submit();
+              setCmdOpen(false);
+            }
+          }}
+        />
+        <div className="text-xs text-slate-500">⌘/Ctrl+K to open • Esc to close</div>
+      </div>
+    </div>
+  );
+
+  /**************
+    NAME GATE
+  **************/
+  useEffect(() => {
+    const who = ATTENDINGS.find(a => a.name === me);
+    setSelected(who || null);
+  }, [me]);
+
+  const gate = !selected && (
+    <div className="max-w-xl mx-auto my-12 p-4 border rounded-xl bg-white">
+      <h2 className="text-lg font-semibold mb-2">Who’s filling preferences?</h2>
+      <p className="text-sm text-slate-600 mb-3">Please pick your name before making any changes.</p>
+      <div className="flex gap-2">
+        <select className="border rounded px-2 py-1 w-full" value={me} onChange={(e) => setMe(e.target.value)}>
+          <option value="">Select your name</option>
+          {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+
+  /**************
+    BODY
+  **************/
+  return (
+    <div className="min-h-screen bg-slate-100">
+      {topBar}
+
+      <div className="max-w-6xl mx-auto px-3 py-4 grid lg:grid-cols-[2fr_1fr] gap-4">
+        <div>
+          {/* Instructions per mode */}
+          <Section title="Instructions">
+            {mode === MODES.CAL && <div className="text-sm text-slate-600">Calendar: Click a weekend → choose service (auto if only one) → choose list. Clearing compresses ranks 1…N.</div>}
+            {mode === MODES.QA  && <div className="text-sm text-slate-600">QuickAdd: Month → Saturday → Service → Add to Most/Least. List starts at January. Ranks normalize after edits.</div>}
+            {mode === MODES.RB  && <div className="text-sm text-slate-600">RankBoard: Click to add to Most; Shift+Click (or toggle) adds to Least. Badges indicate availability; blocked when invalid.</div>}
+            {mode === MODES.DB  && <div className="text-sm text-slate-600">DragBuckets: Drag available chips by month into Most/Least. Removing or moving re-assigns ranks 1…N.</div>}
+          </Section>
+
+          {/* Modes (blocked behind name gate) */}
+          {!selected ? gate : (
+            <Section title={mode}>
+              {mode === MODES.CAL && <CalendarMode />}
+              {mode === MODES.QA  && <QuickAddMode />}
+              {mode === MODES.RB  && <RankBoardMode />}
+              {mode === MODES.DB  && <DragBucketsMode />}
+            </Section>
           )}
         </div>
 
-        <div className="mb-3" style={{ fontSize: 13, color: "#1e293b" }}>
-          Status: {status} {submitted ? "• (Locked after submission)" : ""}
+        {/* Sidebar: Live Preview is always visible across modes */}
+        <div>
+          <Section title="Live Preview" right={<button className="text-xs" onClick={clearAll}>Clear all</button>}>
+            {preview}
+            <div className="mt-3 text-[11px] text-slate-500">
+              Rules enforced: (1) Same date cannot be in both Most and Least. (2) Within a bucket, RNI/COA are mutually exclusive for the same weekend. (3) Auto-pick service if only one is open.
+            </div>
+          </Section>
+
+          {/* Name + counts */}
+          <Section title="Who">
+            <div className="flex items-center gap-2">
+              <select className="border rounded px-2 py-1" value={me} onChange={(e) => setMe(e.target.value)}>
+                <option value="">Select</option>
+                {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
+              </select>
+              {selected && <span className="text-sm text-slate-600">{selected.email}</span>}
+            </div>
+          </Section>
         </div>
-
-        <LivePreview prefs={prefs} profile={profile} />
       </div>
 
-      {/* MODE BODY — centered */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "8px 16px 24px" }}>
-        {mode === "calendar" && (
-          <CalendarMode
-            prefs={prefs}
-            setMost={(id, v) => setMost(id, v)}
-            setLeast={(id, v) => setLeast(id, v)}
-            submitted={submitted}
-            collapsed={collapsed}
-            setCollapsed={setCollapsed}
-          />
-        )}
-        {mode === "drag" && (
-          <DragBucketsMode
-            prefs={prefs}
-            setMost={(id, v) => setMost(id, v)}
-            setLeast={(id, v) => setLeast(id, v)}
-            submitted={submitted}
-            requireName={!disableUntilName}
-          />
-        )}
-        {mode === "quick" && (
-          <QuickAddMode
-            prefs={prefs}
-            setMost={(id, v) => setMost(id, v)}
-            setLeast={(id, v) => setLeast(id, v)}
-            submitted={submitted}
-          />
-        )}
-        {mode === "rank" && (
-          <RankBoardMode
-            prefs={prefs}
-            setMost={(id, v) => setMost(id, v)}
-            setLeast={(id, v) => setLeast(id, v)}
-            submitted={submitted}
-          />
-        )}
-      </div>
-
-      {/* Submit row */}
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 16px 24px", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button
-          disabled={!profile.name || submitted}
-          onClick={submitFinal}
-          style={{
-            padding: "10px 16px", borderRadius: 12, fontWeight: 800,
-            background: (!profile.name || submitted) ? "#e5e7eb" : "#2563eb",
-            color: (!profile.name || submitted) ? "#6b7280" : "#fff",
-            border: "1px solid #cbd5e1",
-          }}
-        >
-          {submitted ? "Submitted (Locked)" : "Submit Final Preferences"}
-        </button>
-        <span style={{ fontSize: 12, color: "#64748b" }}>
-          {submitted ? "Locked. Downloads reflect your final choices." : "Tip: Preview CSV/Word anytime from the top bar."}
-        </span>
-        <div style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>Build: {__APP_VERSION__}</div>
-      </div>
+      {palette}
     </div>
   );
 }
