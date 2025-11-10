@@ -259,17 +259,31 @@ function normalizeRanks(prefsIn) {
 }
 
 function enforceMutualExclusion(prefsIn, id, where, svc) {
-  // Prevent picking both services for the same weekend in the same list "where" (most|least)
-  const p = { ...(prefsIn[id] || {}) };
-  if (where === "most") {
-    p.mostService = svc;
-    if (svc === SERVICES.NONE) p.mostChoice = 0;
-  } else {
-    p.leastService = svc;
-    if (svc === SERVICES.NONE) p.leastChoice = 0;
-  }
-  const out = { ...prefsIn, [id]: p };
-  return normalizeRanks(out);
++0262 |   // Global exclusivity per date:
++0263 |   // - You can't have the same date in both Most and Least.
++0264 |   // - You can't pick both services on the same date (because only one bucket may be populated).
++0265 |   const p = { ...(prefsIn[id] || {}) };
++0266 |   if (where === "most") {
++0267 |     p.mostService = svc;
++0268 |     if (svc === SERVICES.NONE) {
++0269 |       p.mostChoice = 0;
++0270 |     } else {
++0271 |       // Choosing a Most value clears any Least selection for that date.
++0272 |       p.leastService = SERVICES.NONE;
++0273 |       p.leastChoice = 0;
++0274 |     }
++0275 |   } else {
++0276 |     p.leastService = svc;
++0277 |     if (svc === SERVICES.NONE) {
++0278 |       p.leastChoice = 0;
++0279 |     } else {
++0280 |       // Choosing a Least value clears any Most selection for that date.
++0281 |       p.mostService = SERVICES.NONE;
++0282 |       p.mostChoice = 0;
++0283 |     }
++0284 |   }
++0285 |   const out = { ...prefsIn, [id]: p };
++0286 |   return normalizeRanks(out);
 }
 
 function setChoiceNumber(prefsIn, id, where, n) {
@@ -316,33 +330,41 @@ function docHtml(name, email, top, bottom) {
   const esc = (s) =>
     String(s ?? "")
       .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+      .replace(/</g,>/g, "&gt;");
   const row = (kind, r) => `
     <tr>
-      <td>${esc(kind)}</td>
-      <td>${esc(r.choice)}</td>
-      <td>${esc(r.service || "")}</td>
-      <td>${esc(labelForWeekend(r.weekend))}</td>
-    </tr>`;
+	<td>${esc(kind)}</td>
+	<td>${esc(r.choice)}</td>
+	<td>${esc(r.service || "")}</td>
+	<td>${esc(labelForWeekend(r.weekend))}</td>
+</tr>`;
   return `
   <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-  <head><meta charset="utf-8"><title>Preferences</title></head>
-  <body>
-    <h2>2026 Weekend Preferences</h2>
-    <p><b>Name:</b> ${esc(name || "")} &nbsp; <b>Email:</b> ${esc(email || "")}</p>
-    <table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
-      <thead style="background:#f3f4f6">
-        <tr><th>Kind</</th><th>Choice #</th><th>Service</th><th>Weekend</th></tr>
-      </thead>
-      <tbody>
+	<head>
+		<meta charset="utf-8">
+			<title>Preferences</title>
+		</head>
+		<body>
+			<h2>2026 Weekend Preferences</h2>
+			<p>
+				<b>Name:</b> ${esc(name || "")} &nbsp; <b>Email:</b> ${esc(email || "")}</p>
+			<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
+				<thead style="background:#f3f4f6">
+					<tr>
+						<th>Kind</</th>
+						<th>Choice #</th>
+						<th>Service</th>
+						<th>Weekend</th>
+					</tr>
+				</thead>
+				<tbody>
         ${top.map((r) => row("MOST", r)).join("")}
         ${bottom.map((r) => row("LEAST", r)).join("")}
       </tbody>
-    </table>
-    <p style="margin-top:12px;font-size:12px;color:#555">Generated on ${new Date().toLocaleString()}</p>
-  </body>
-  </html>`;
+			</table>
+			<p style="margin-top:12px;font-size:12px;color:#555">Generated on ${new Date().toLocaleString()}</p>
+		</body>
+	</html>`;
 }
 
 /* =============================
@@ -362,16 +384,14 @@ const BarButton = ({ onClick, children, kind = "plain", title }) => {
     whiteSpace: "nowrap",
   };
   return (
-    <button title={title} onClick={onClick} style={{ ...base, ...styles[kind] }}>
-      {children}
-    </button>
+    <button title={title} onClick={onClick} style={{ ...base, ...styles[kind] }}> {children}
+</button>
   );
 };
 
 const Pill = ({ children, bg = "#f1f5f9", fg = "#0f172a" }) => (
-  <span className="pill" style={{ background: bg, color: fg }}>
-    {children}
-  </span>
+  <span className="pill" style={{ background: bg, color: fg }}> {children}
+</span>
 );
 
 /* =============================
@@ -380,10 +400,8 @@ const Pill = ({ children, bg = "#f1f5f9", fg = "#0f172a" }) => (
 function Identity({ profile, saveProfile }) {
   return (
     <div className="id-row">
-      <label className="id-label">Your name:</label>
-      <select
-        value={profile.name}
-        onChange={(e) =>
+	<label className="id-label">Your name:</label>
+	<select value={profile.name} onChange={(e)=>
           saveProfile({
             ...profile,
             name: e.target.value,
@@ -396,40 +414,32 @@ function Identity({ profile, saveProfile }) {
       >
         <option value="">— Select —</option>
         {ATTENDINGS.map((a) => (
-          <option key={a.name} value={a.name}>
-            {a.name}
-          </option>
+          <option key={a.name} value={a.name}> {a.name}
+	</option>
         ))}
       </select>
-
-      <label className="id-label" style={{ marginLeft: 8 }}>
-        Email (optional):
-      </label>
-      <input
-        type="email"
-        value={profile.email}
-        placeholder="you@uab.edu"
-        onChange={(e) => saveProfile({ ...profile, email: e.target.value })}
+<label className="id-label" style={{ marginLeft: 8 }}> Email (optional):
+</label>
+<input type="email" value={profile.email} placeholder="you@uab.edu" onChange={(e)=> saveProfile({ ...profile, email: e.target.value })}
         className="id-input"
       />
 
       {profile.name && (
-        <div style={{ marginTop: 8, width: "100%" }}>
-          {(() => {
+        <div style={{ marginTop: 8, width:"100%" }}> {(()=> {
             const m = ATTENDING_LIMITS[profile.name];
             return m ? (
               <div className="limits-card">
-                <div className="limits-name">{profile.name}</div>
-                <div className="limits-line">
-                  <b>Total weekends requested:</b> {m.requested}
+			<div className="limits-name">{profile.name}</div>
+			<div className="limits-line">
+				<b>Total weekends requested:</b> {m.requested}
                 </div>
-                <div className="limits-line">
-                  <b>Assignments already claimed:</b> {m.claimed}
+			<div className="limits-line">
+				<b>Assignments already claimed:</b> {m.claimed}
                 </div>
-                <div className="limits-line">
-                  <b>Assignments left to be picked:</b> {m.left}
+			<div className="limits-line">
+				<b>Assignments left to be picked:</b> {m.left}
                 </div>
-              </div>
+		</div>
             ) : (
               <div className="limits-warn">
                 Target numbers for “{profile.name}” are not set yet.
@@ -458,32 +468,32 @@ function LivePreview({ prefs }) {
 
   return (
     <div className="live-card">
-      <div className="live-title">Live Preview</div>
-      <div className="live-columns">
-        <div className="live-col">
-          <div className="live-col-title">Most</div>
+	<div className="live-title">Live Preview</div>
+	<div className="live-columns">
+		<div className="live-col">
+			<div className="live-col-title">Most</div>
           {most.length === 0 && <div className="live-empty">— None —</div>}
           {most.map((r) => (
             <div key={`m-${r.id}`} className="live-row">
-              <span className="live-choice">#{r.choice}</span>
-              <span>{labelForWeekend(r.id)}</span>
-              <Pill bg="#dbeafe" fg="#1e3a8a">{r.svc}</Pill>
-            </div>
+				<span className="live-choice">#{r.choice}</span>
+				<span>{labelForWeekend(r.id)}</span>
+				<Pill bg="#dbeafe" fg="#1e3a8a">{r.svc}</Pill>
+			</div>
           ))}
         </div>
-        <div className="live-col">
-          <div className="live-col-title">Least</div>
+		<div className="live-col">
+			<div className="live-col-title">Least</div>
           {least.length === 0 && <div className="live-empty">— None —</div>}
           {least.map((r) => (
             <div key={`l-${r.id}`} className="live-row">
-              <span className="live-choice">#{r.choice}</span>
-              <span>{labelForWeekend(r.id)}</span>
-              <Pill bg="#e0e7ff" fg="#3730a3">{r.svc}</Pill>
-            </div>
+				<span className="live-choice">#{r.choice}</span>
+				<span>{labelForWeekend(r.id)}</span>
+				<Pill bg="#e0e7ff" fg="#3730a3">{r.svc}</Pill>
+			</div>
           ))}
         </div>
-      </div>
-    </div>
+	</div>
+</div>
   );
 }
 
@@ -508,17 +518,13 @@ const MONTH_COLORS = [
 function ChoiceSelect({ value, onChange, disabled, placeholder, maxN }) {
   const MAX = Math.max(10, maxN || 10);
   return (
-    <select
-      disabled={disabled}
-      value={String(value || 0)}
-      onChange={(e) => onChange(parseInt(e.target.value, 10))}
+    <select disabled={disabled} value={String(value || 0)} onChange={(e)=> onChange(parseInt(e.target.value, 10))}
       className="select"
     >
       <option value="0">{placeholder}</option>
       {Array.from({ length: MAX }, (_, i) => i + 1).map((n) => (
-        <option key={n} value={n}>
-          {n}
-        </option>
+        <option key={n} value={n}> {n}
+</option>
       ))}
     </select>
   );
@@ -529,11 +535,7 @@ function RadioServiceLimited({ available, value, onChange, disabled, name }) {
     <div className="radio-row">
       {available.includes(SERVICES.RNI) && (
         <label className="radio-label">
-          <input
-            type="radio"
-            disabled={disabled}
-            checked={value === SERVICES.RNI}
-            onChange={() => onChange(SERVICES.RNI)}
+		<input type="radio" disabled={disabled} checked={value=== SERVICES.RNI}onChange={()=> onChange(SERVICES.RNI)}
             name={name}
           />
           RNI
@@ -541,11 +543,7 @@ function RadioServiceLimited({ available, value, onChange, disabled, name }) {
       )}
       {available.includes(SERVICES.COA) && (
         <label className="radio-label">
-          <input
-            type="radio"
-            disabled={disabled}
-            checked={value === SERVICES.COA}
-            onChange={() => onChange(SERVICES.COA)}
+			<input type="radio" disabled={disabled} checked={value=== SERVICES.COA}onChange={()=> onChange(SERVICES.COA)}
             name={name}
           />
           COA
@@ -570,10 +568,10 @@ function MonthCard({
   const color = MONTH_COLORS[idx] ?? { bg: "#eeeeee", fg: "#111111", border: "#cccccc" };
   return (
     <div id={`month-${mk}`} className="month-card">
-      <button className="month-head" style={{ background: color.bg, color: color.fg, borderBottom: `2px solid ${color.border}` }} onClick={onToggle} title="Collapse/expand">
-        <span>{label}</span>
-        <span className="caret">{collapsed ? "▸" : "▾"}</span>
-      </button>
+			<button className="month-head" style={{ background: color.bg, color: color.fg, borderBottom: `2px solid ${color.border}` }} onClick={onToggle} title="Collapse/expand">
+				<span>{label}</span>
+				<span className="caret">{collapsed ? "▸" : "▾"}</span>
+			</button>
       {!collapsed && (
         <div className="month-body">
           {items.map((w) => {
@@ -591,36 +589,29 @@ function MonthCard({
             if (coaOpen) available.push(SERVICES.COA);
 
             return (
-              <div key={w.date} className="week-row" style={{ background: fullyAssigned ? "#f9fafb" : "#fff", opacity: fullyAssigned ? 0.85 : 1 }}>
-                <div className="week-top">
-                  <div className="week-day">{w.day}</div>
+              <div key={w.date} className="week-row" style={{ background: fullyAssigned ?"#f9fafb" :"#fff" , opacity: fullyAssigned ? 0.85 : 1 }}>
+				<div className="week-top">
+					<div className="week-day">{w.day}</div>
                   {w.detail && <Pill bg="#fff7ed" fg="#c2410c">{w.detail}</Pill>}
                 </div>
-                <div className="assign-line">
-                  <span className="assign-pill" style={{ background: rniOpen ? "#dbeafe" : "#e5e7eb", color: rniOpen ? "#1e3a8a" : "#111827" }}>
-                    RNI: {rniOpen ? "OPEN" : <strong style={{ fontSize: 15 }}>{w.rni}</strong>}
-                  </span>
-                  <span className="assign-pill" style={{ background: coaOpen ? "#e0e7ff" : "#e5e7eb", color: coaOpen ? "#3730a3" : "#111827" }}>
-                    COA: {coaOpen ? "OPEN" : <strong style={{ fontSize: 15 }}>{w.coa}</strong>}
-                  </span>
-                </div>
+				<div className="assign-line">
+					<span className="assign-pill" style={{ background: rniOpen ?"#dbeafe" :"#e5e7eb" , color: rniOpen ?"#1e3a8a" :"#111827" }}> RNI: {rniOpen ?"OPEN" :
+					<strong style={{ fontSize: 15 }}>{w.rni}< strong>}
+				</span>
+				<span className="assign-pill" style={{ background: coaOpen ?"#e0e7ff" :"#e5e7eb" , color: coaOpen ?"#3730a3" :"#111827" }}> COA: {coaOpen ?"OPEN" :
+				<strong style={{ fontSize: 15 }}>{w.coa}< strong>}
+			</span>
+		</div>
 
                 {!fullyAssigned ? (
-                  <div className="rank-block" style={{ opacity: submitted ? 0.6 : 1, pointerEvents: submitted ? "none" : "auto" }}>
-                    <div className="rank-card">
-                      <div className="rank-title">Most (service + choice)</div>
-                      <div className="rank-row">
-                        <RadioServiceLimited
-                          available={available}
-                          disabled={submitted}
-                          value={available.includes(p.mostService) ? p.mostService : SERVICES.NONE}
-                          onChange={(svc) => onMostChange(w.date, { ...p, mostService: svc })}
+                  <div className="rank-block" style={{ opacity: submitted ? 0.6 : 1, pointerEvents: submitted ?"none" :"auto" }}>
+		<div className="rank-card">
+			<div className="rank-title">Most (service + choice)</div>
+			<div className="rank-row">
+				<RadioServiceLimited available={available} disabled={submitted} value={available.includes(p.mostService) ? p.mostService : SERVICES.NONE} onChange={(svc)=> onMostChange(w.date, { ...p, mostService: svc })}
                           name={`most-${w.date}`}
                         />
-                        <ChoiceSelect
-                          disabled={submitted || available.length === 0 || p.mostService === SERVICES.NONE}
-                          value={p.mostChoice || 0}
-                          onChange={(choice) => onMostChange(w.date, { ...p, mostChoice: choice })}
+                        <ChoiceSelect disabled={submitted || available.length===0 || p.mostService===SERVICES.NONE} value={p.mostChoice || 0} onChange={(choice)=> onMostChange(w.date, { ...p, mostChoice: choice })}
                           placeholder="Most choice…"
                           maxN={allWeekendIds.length}
                         />
@@ -631,22 +622,14 @@ function MonthCard({
                           <Pill bg="#d1fae5" fg="#065f46">Most #{p.mostChoice}</Pill>
                         )}
                       </div>
-                    </div>
-
-                    <div className="rank-card">
-                      <div className="rank-title">Least (service + choice)</div>
-                      <div className="rank-row">
-                        <RadioServiceLimited
-                          available={available}
-                          disabled={submitted}
-                          value={available.includes(p.leastService) ? p.leastService : SERVICES.NONE}
-                          onChange={(svc) => onLeastChange(w.date, { ...p, leastService: svc })}
+				</div>
+				<div className="rank-card">
+					<div className="rank-title">Least (service + choice)</div>
+					<div className="rank-row">
+						<RadioServiceLimited available={available} disabled={submitted} value={available.includes(p.leastService) ? p.leastService : SERVICES.NONE} onChange={(svc)=> onLeastChange(w.date, { ...p, leastService: svc })}
                           name={`least-${w.date}`}
                         />
-                        <ChoiceSelect
-                          disabled={submitted || available.length === 0 || p.leastService === SERVICES.NONE}
-                          value={p.leastChoice || 0}
-                          onChange={(choice) => onLeastChange(w.date, { ...p, leastChoice: choice })}
+                        <ChoiceSelect disabled={submitted || available.length===0 || p.leastService===SERVICES.NONE} value={p.leastChoice || 0} onChange={(choice)=> onLeastChange(w.date, { ...p, leastChoice: choice })}
                           placeholder="Least choice…"
                           maxN={allWeekendIds.length}
                         />
@@ -657,8 +640,8 @@ function MonthCard({
                           <Pill bg="#ffe4e6" fg="#9f1239">Least #{p.leastChoice}</Pill>
                         )}
                       </div>
-                    </div>
-                  </div>
+						</div>
+					</div>
                 ) : (
                   <div className="full-badge">FULLY ASSIGNED — NO RANKING AVAILABLE</div>
                 )}
@@ -675,13 +658,7 @@ function CalendarMode({ prefs, setMost, setLeast, collapsed, setCollapsed, submi
   return (
     <div className="grid-2x6">
       {MONTH_KEYS.map((mk, i) => (
-        <MonthCard
-          key={mk}
-          mk={mk}
-          label={`${MONTH_FULL[i]} ${YEAR}`}
-          items={months[mk]}
-          prefs={prefs}
-          onMostChange={(id, v) => setMost(id, v)}
+        <MonthCard key={mk} mk={mk} label={`${MONTH_FULL[i]} ${YEAR}`} items={months[mk]} prefs={prefs} onMostChange={(id, v)=> setMost(id, v)}
           onLeastChange={(id, v) => setLeast(id, v)}
           collapsed={collapsed[mk]}
           submitted={submitted}
@@ -702,6 +679,16 @@ function QuickAdd({ prefs, setPrefs, requireName }) {
   const [date, setDate] = useState(allWeekendIds.find((id) => monthOf(id) === "01") || "");
   const [svc, setSvc] = useState(SERVICES.RNI);
   const [bucket, setBucket] = useState("most"); // "most" | "least"
++0720 |     // Disallow using the same date in both buckets; force the user to remove first.
++0721 |     const existing = prefs[date] || {};
++0722 |     if (bucket === "most" && existing.leastService !== SERVICES.NONE && existing.leastChoice > 0) {
++0723 |       alert("This Saturday is already in your Least list. Remove it from Least before adding to Most.");
++0724 |       return;
++0725 |     }
++0726 |     if (bucket === "least" && existing.mostService !== SERVICES.NONE && existing.mostChoice > 0) {
++0727 |       alert("This Saturday is already in your Most list. Remove it from Most before adding to Least.");
++0728 |       return;
++0729 |     }
 
   useEffect(() => {
     // when month changes, pick first weekend in that month
@@ -724,9 +711,13 @@ function QuickAdd({ prefs, setPrefs, requireName }) {
         // mutual exclusion
         p.mostService = svc;
         p.mostChoice = p.mostChoice > 0 ? p.mostChoice : 9999; // temp marker to push into list before normalize
+		+0734 |         // hard-clear Least to guarantee single-bucket-per-date
++0735 |         if (svc !== SERVICES.NONE) { p.leastService = SERVICES.NONE; p.leastChoice = 0; }
       } else {
         p.leastService = svc;
         p.leastChoice = p.leastChoice > 0 ? p.leastChoice : 9999;
+		+0739 |         // hard-clear Most to guarantee single-bucket-per-date
++0740 |         if (svc !== SERVICES.NONE) { p.mostService = SERVICES.NONE; p.mostChoice = 0; }
       }
       out[date] = p;
       return normalizeRanks(out);
@@ -752,43 +743,37 @@ function QuickAdd({ prefs, setPrefs, requireName }) {
 
   return (
     <div className="mode-card">
-      <div className="mode-title">QuickAdd</div>
-      <div className="mode-instructions">
+				<div className="mode-title">QuickAdd</div>
+				<div className="mode-instructions">
         Pick Month → Saturday → Service → List, then “Add”. Use “Remove” to undo. Counters renumber automatically.
       </div>
-      <div className="qa-row">
-        <label>Month</label>
-        <select className="select" value={month} onChange={(e) => setMonth(e.target.value)}>
+				<div className="qa-row">
+					<label>Month</label>
+					<select className="select" value={month} onChange={(e)=> setMonth(e.target.value)}>
           {MONTH_KEYS.map((mk, i) => (
-            <option key={mk} value={mk}>{MONTH_FULL[i]}</option>
-          ))}
-        </select>
-
-        <label>Saturday</label>
-        <select className="select" value={date} onChange={(e) => setDate(e.target.value)}>
+            <option key={mk} value={mk}>{MONTH_FULL[i]}</option> ))}
+					</select>
+					<label>Saturday</label>
+					<select className="select" value={date} onChange={(e)=> setDate(e.target.value)}>
           {allWeekendIds.filter((id) => monthOf(id) === month).map((id) => (
-            <option key={id} value={id}>
-              {labelForWeekend(id)}
-            </option>
+            <option key={id} value={id}> {labelForWeekend(id)}
+					</option>
           ))}
         </select>
-
-        <label>Service</label>
-        <select className="select" value={svc} onChange={(e) => setSvc(e.target.value)}>
+				<label>Service</label>
+				<select className="select" value={svc} onChange={(e)=> setSvc(e.target.value)}>
           <option value={SERVICES.RNI}>RNI</option>
-          <option value={SERVICES.COA}>COA</option>
-        </select>
-
-        <label>List</label>
-        <select className="select" value={bucket} onChange={(e) => setBucket(e.target.value)}>
+					<option value={SERVICES.COA}>COA</option>
+				</select>
+				<label>List</label>
+				<select className="select" value={bucket} onChange={(e)=> setBucket(e.target.value)}>
           <option value="most">Most</option>
-          <option value="least">Least</option>
-        </select>
-
-        <BarButton kind="blue" onClick={apply} title="Add selection">Add</BarButton>
-        <BarButton onClick={remove} title="Remove selection">Remove</BarButton>
-      </div>
-    </div>
+					<option value="least">Least</option>
+				</select>
+				<BarButton kind="blue" onClick={apply} title="Add selection">Add</BarButton>
+				<BarButton onClick={remove} title="Remove selection">Remove</BarButton>
+			</div>
+		</div>
   );
 }
 
@@ -823,21 +808,18 @@ function RankBoard({ prefs, setPrefs, requireName }) {
 
   return (
     <div className="mode-card">
-      <div className="mode-title">RankBoard</div>
-      <div className="mode-instructions">
+			<div className="mode-title">RankBoard</div>
+			<div className="mode-instructions">
         Click a weekend’s <b>RNI</b> or <b>COA</b> to add to <b>Most</b>. <b>Shift+Click</b> adds to <b>Least</b>. Click again on the same service to remove.
       </div>
-
-      <div className="qa-row">
-        <label>Month</label>
-        <select className="select" value={currentMonth} onChange={(e) => setCurrentMonth(e.target.value)}>
+			<div className="qa-row">
+				<label>Month</label>
+				<select className="select" value={currentMonth} onChange={(e)=> setCurrentMonth(e.target.value)}>
           {MONTH_KEYS.map((mk, i) => (
-            <option key={mk} value={mk}>{MONTH_FULL[i]}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="rankboard-grid">
+            <option key={mk} value={mk}>{MONTH_FULL[i]}</option> ))}
+				</select>
+			</div>
+			<div className="rankboard-grid">
         {months[currentMonth].map((w) => {
           const p = prefs[w.date] || {};
           const avail = availabilityByWeekend[w.date] || [];
@@ -852,10 +834,7 @@ function RankBoard({ prefs, setPrefs, requireName }) {
               activeLeast ? `${base} rb-least` :
               base;
             return (
-              <button
-                key={svc}
-                className={cls}
-                onClick={(e) => {
+              <button key={svc} className={cls} onClick={(e)=> {
                   if (!available) return;
                   const isLeast = e.shiftKey;
                   setPrefs((prev) => {
@@ -891,25 +870,25 @@ function RankBoard({ prefs, setPrefs, requireName }) {
 
           return (
             <div key={w.date} className="rb-row">
-              <div className="rb-date">
-                <div className="rb-date-main">{labelForWeekend(w.date)}</div>
+					<div className="rb-date">
+						<div className="rb-date-main">{labelForWeekend(w.date)}</div>
                 {w.detail && <div className="rb-detail">{w.detail}</div>}
               </div>
-              <div className="rb-actions">
-                <span className="rb-badge">
+					<div className="rb-actions">
+						<span className="rb-badge">
                   RNI:&nbsp;
                   {w.rni === null ? svcBtn(SERVICES.RNI, "Open") : <b>{w.rni}</b>}
                 </span>
-                <span className="rb-badge">
+						<span className="rb-badge">
                   COA:&nbsp;
                   {w.coa === null ? svcBtn(SERVICES.COA, "Open") : <b>{w.coa}</b>}
                 </span>
-              </div>
-            </div>
+					</div>
+				</div>
           );
         })}
       </div>
-    </div>
+		</div>
   );
 }
 
@@ -1002,71 +981,66 @@ function DragBuckets({ prefs, setPrefs, requireName }) {
 
   return (
     <div className="mode-card">
-      <div className="mode-title">DragBuckets</div>
-      <div className="mode-instructions">
+			<div className="mode-title">DragBuckets</div>
+			<div className="mode-instructions">
         Drag from <b>Source</b> (left) to <b>Most</b> or <b>Least</b>. Drag back to <b>Source</b> or click ✕ to remove. Counters renumber automatically.
       </div>
-
-      <div className="drag-wrap">
+			<div className="drag-wrap">
         {/* SOURCE (horizontal grouped by month) */}
-        <div className="drag-source" onDragOver={allowDrop} onDrop={onDropTo("source")}>
-          <div className="drag-source-title">Source</div>
-          <div className="drag-month-strip">
+        <div className="drag-source" onDragOver={allowDrop} onDrop={onDropTo("source" )}>
+				<div className="drag-source-title">Source</div>
+				<div className="drag-month-strip">
             {MONTH_KEYS.map((mk, i) => (
               <div key={mk} className="drag-month">
-                <div className="drag-month-head">{MONTH_FULL[i]}</div>
-                <div className="drag-month-body">
+						<div className="drag-month-head">{MONTH_FULL[i]}</div>
+						<div className="drag-month-body">
                   {sourceByMonth[mk].map((it) => (
-                    <div
-                      key={it.id}
-                      className="chip"
-                      draggable
-                      onDragStart={(e) => onDragStart(e, { date: it.date, svc: it.svc })}
+                    <div key={it.id} className="chip" draggable onDragStart={(e)=> onDragStart(e, { date: it.date, svc: it.svc })}
                       title={`${labelForWeekend(it.date)} • ${it.svc}`}
                     >
                       <span className="chip-date">{labelForWeekend(it.date)}</span>
-                      <span className={`chip-svc ${it.svc === "RNI" ? "rni" : "coa"}`}>{it.svc}</span>
-                    </div>
+								<span className={`chip-svc ${it.svc==="RNI" ?"rni" :"coa" }`}>{it.svc}< span>
+							</div>
                   ))}
                 </div>
-              </div>
+					</div>
             ))}
           </div>
-        </div>
+			</div>
 
         {/* MOST */}
-        <div className="drag-bucket" onDragOver={allowDrop} onDrop={onDropTo("most")}>
-          <div className="drag-bucket-head">Most</div>
-          <div className="drag-bucket-body">
+        <div className="drag-bucket" onDragOver={allowDrop} onDrop={onDropTo("most" )}>
+			<div className="drag-bucket-head">Most</div>
+			<div className="drag-bucket-body">
             {mostList.length === 0 && <div className="empty">Drop items here</div>}
             {mostList.map((r) => (
               <div key={`m-${r.date}`} className="row">
-                <span className="row-choice">#{r.choice}</span>
-                <span className="row-date">{labelForWeekend(r.date)}</span>
-                <span className={`row-svc ${r.svc === "RNI" ? "rni" : "coa"}`}>{r.svc}</span>
-                <button className="row-x" onClick={() => removeEntry("most", r.date, r.svc)}>✕</button>
-              </div>
+					<span className="row-choice">#{r.choice}</span>
+					<span className="row-date">{labelForWeekend(r.date)}</span>
+					<span className={`row-svc ${r.svc==="RNI" ?"rni" :"coa" }`}>{r.svc}< span>
+					<button className="row-x" onClick={()=> removeEntry("most", r.date, r.svc)}>✕</button>
+				</div>
             ))}
           </div>
-        </div>
+		</div>
 
         {/* LEAST */}
-        <div className="drag-bucket" onDragOver={allowDrop} onDrop={onDropTo("least")}>
-          <div className="drag-bucket-head">Least</div>
-          <div className="drag-bucket-body">
+        <div className="drag-bucket" onDragOver={allowDrop} onDrop={onDropTo("least" )}>
+		<div className="drag-bucket-head">Least</div>
+		<div className="drag-bucket-body">
             {leastList.length === 0 && <div className="empty">Drop items here</div>}
             {leastList.map((r) => (
               <div key={`l-${r.date}`} className="row">
-                <span className="row-choice">#{r.choice}</span>
-                <span className="row-date">{labelForWeekend(r.date)}</span>
-                <span className={`row-svc ${r.svc === "RNI" ? "rni" : "coa"}`}>{r.svc}</span>
-                <button className="row-x" onClick={() => removeEntry("least", r.date, r.svc)}>✕</button>
-              </div>
+				<span className="row-choice">#{r.choice}</span>
+				<span className="row-date">{labelForWeekend(r.date)}</span>
+				<span className={`row-svc ${r.svc==="RNI" ?"rni" :"coa" }`}>{r.svc}< span>
+				<button className="row-x" onClick={()=> removeEntry("least", r.date, r.svc)}>✕</button>
+			</div>
             ))}
           </div>
-        </div>
-      </div>
-    </div>
+	</div>
+</div>
+</div>
   );
 }
 
@@ -1080,22 +1054,9 @@ function CommandPalette({ onCommand, disabled }) {
   const parse = (s) => {
     // Try formats: "Jun 13 RNI M 2" / "September 5 COA L"
     const parts = s.trim().split(/\s+/);
-    if (parts.length < 4) return null;
-    // month may be one token or more (e.g., "September")
-    // We’ll assume Month (1) Day (2) Svc (3) Kind (4) [num? (5)]
-    const mon = parts[0];
-    const day = parts[1].replace(/[^0-9]/g, "");
-    const svc = parts[2].toUpperCase();
-    const kind = parts[3].toUpperCase(); // M or L
-    const num = parts[4] ? parseInt(parts[4], 10) : null;
-
-    const mIdx = MONTH_FULL.findIndex(
-      (m) => m.toLowerCase().startsWith(mon.toLowerCase())
+    if (parts.length < 4)return null; month may be one token or more (e.g.,"September" ) We’ll assume Month (1) Day (2) Svc (3) Kind (4) [num? (5)] const mon=parts[0]; const day=parts[1].replace(/[^0-9]/g, ""); const svc=parts[2].toUpperCase(); const kind=parts[3].toUpperCase(); M or L const num=parts[4] ? parseInt(parts[4], 10) : null; const mIdx=MONTH_FULL.findIndex( (m)=> m.toLowerCase().startsWith(mon.toLowerCase())
     );
-    if (mIdx < 0) return null;
-    const mk = String(mIdx + 1).padStart(2, "0");
-    // Find matching Saturday by day in that month
-    const id = allWeekendIds.find((id0) => monthOf(id0) === mk && id0.slice(8, 10) === String(day).padStart(2, "0"));
+    if (mIdx < 0)return null; const mk=String(mIdx + 1).padStart(2,"0" ); Find matching Saturday by day in that month const id=allWeekendIds.find((id0)=> monthOf(id0) === mk && id0.slice(8, 10) === String(day).padStart(2, "0"));
     if (!id) return null;
     if (svc !== "RNI" && svc !== "COA") return null;
     if (kind !== "M" && kind !== "L") return null;
@@ -1116,16 +1077,11 @@ function CommandPalette({ onCommand, disabled }) {
 
   return (
     <div className="cmd">
-      <input
-        className="cmd-input"
-        disabled={disabled}
-        placeholder='Command (e.g., "Jun 13 RNI M 2" or "September 5 COA L")'
-        value={txt}
-        onChange={(e) => setTxt(e.target.value)}
+			<input className="cmd-input" disabled={disabled} placeholder='Command (e.g., "Jun 13 RNI M 2" or "September 5 COA L")' value={txt} onChange={(e)=> setTxt(e.target.value)}
         onKeyDown={onKey}
       />
       <div className="cmd-hint">Enter = apply</div>
-    </div>
+			</div>
   );
 }
 
@@ -1447,42 +1403,38 @@ export default function App() {
 
   const headerButtons = (
     <>
-      <strong className="jump-label">Jump:</strong>
+				<strong className="jump-label">Jump:</strong>
       {MONTH_KEYS.map((mk, i) => (
-        <BarButton key={mk} onClick={() => jumpTo(mk)} title={`Jump to ${MONTH_FULL[i]}`}>
+        <BarButton key={mk} onClick={()=> jumpTo(mk)} title={`Jump to ${MONTH_FULL[i]}`}>
           {MONTH_FULL[i].slice(0, 3)}
         </BarButton>
       ))}
-      <div className="spacer" />
-      <BarButton onClick={() => collapseAll(true)} title="Collapse all">Collapse</BarButton>
-      <BarButton onClick={() => collapseAll(false)} title="Expand all">Expand</BarButton>
-      <BarButton kind="green" onClick={downloadMyCSV} title="CSV preview or final">Preview CSV</BarButton>
-      <BarButton kind="indigo" onClick={downloadMyWord} title="Word preview or final">Preview Word</BarButton>
-      <BarButton
-        kind="blue"
-        onClick={handleSubmit}
-        title="Submit & lock"
-      >
+      <div className="spacer"/>
+				<BarButton onClick={()=> collapseAll(true)} title="Collapse all">Collapse</BarButton>
+				<BarButton onClick={()=> collapseAll(false)} title="Expand all">Expand</BarButton>
+				<BarButton kind="green" onClick={downloadMyCSV} title="CSV preview or final">Preview CSV</BarButton>
+				<BarButton kind="indigo" onClick={downloadMyWord} title="Word preview or final">Preview Word</BarButton>
+				<BarButton kind="blue" onClick={handleSubmit} title="Submit & lock">
         {submitted ? "Submitted (Locked)" : "Submit Preferences"}
       </BarButton>
-      <div className="fb-badge">{firebaseBadge}</div>
-    </>
+				<div className="fb-badge">{firebaseBadge}</div>
+			</>
   );
 
   // Landing
   const Landing = () => (
     <div className="landing">
-      <div className="landing-title">2026 Preferences (RNI &amp; COA)</div>
-      <div className="landing-links">
-        <button className="link-btn" onClick={() => setUI("calendar")}>Calendar</button>
-        <button className="link-btn" onClick={() => setUI("quick")}>QuickAdd</button>
-        <button className="link-btn" onClick={() => setUI("rank")}>RankBoard</button>
-        <button className="link-btn" onClick={() => setUI("drag")}>DragBuckets</button>
-      </div>
-      <div className="landing-note">
+				<div className="landing-title">2026 Preferences (RNI &amp; COA)</div>
+				<div className="landing-links">
+					<button className="link-btn" onClick={()=> setUI("calendar")}>Calendar</button>
+					<button className="link-btn" onClick={()=> setUI("quick")}>QuickAdd</button>
+					<button className="link-btn" onClick={()=> setUI("rank")}>RankBoard</button>
+					<button className="link-btn" onClick={()=> setUI("drag")}>DragBuckets</button>
+				</div>
+				<div className="landing-note">
         Or use <code>?ui=calendar</code>, <code>?ui=quick</code>, <code>?ui=rank</code>, <code>?ui=drag</code> in the URL.
       </div>
-    </div>
+			</div>
   );
 
   const NameGate = (!profile.name || submitted === undefined) ? true : false;
@@ -1490,38 +1442,36 @@ export default function App() {
   return (
     <div className="page">
       {/* left/right bands for centering */}
-      <div className="band" />
-      <div className="container">
+      <div className="band"/>
+				<div className="container">
         {/* Sticky Top Bar */}
         <div className="topbar">
-          <div className="topbar-inner">{headerButtons}</div>
-        </div>
+						<div className="topbar-inner">{headerButtons}</div>
+					</div>
 
         {/* Header + instructions */}
         <div className="header">
-          <h1 className="h1">Weekend Preference Collection — 2026</h1>
-          <ol className="inst">
-            <li>Select your name below. You will see your target number of weekends.</li>
-            <li>Use any mode to add as many <b>Most</b> and <b>Least</b> choices as you need (service required for both).</li>
-            <li>Preview (CSV/Word) anytime. Submit to lock.</li>
-            <li>Aim for a balanced spread of <b>COA</b> and <b>RNI</b> in “Most”. Selecting more weekends increases your chance of getting preferred ones.</li>
-          </ol>
-          <div className="status">
+						<h1 className="h1">Weekend Preference Collection — 2026</h1>
+						<ol className="inst">
+							<li>Select your name below. You will see your target number of weekends.</li>
+							<li>Use any mode to add as many <b>Most</b> and <b>Least</b> choices as you need (service required for both).</li>
+							<li>Preview (CSV/Word) anytime. Submit to lock.</li>
+							<li>Aim for a balanced spread of <b>COA</b> and <b>RNI</b> in “Most”. Selecting more weekends increases your chance of getting preferred ones.</li>
+						</ol>
+						<div className="status">
             Status: {status} • Most choices: {counts.mostCount} • Least choices: {counts.leastCount} {submitted ? "• (Locked after submission)" : ""}
           </div>
-          <Identity profile={profile} saveProfile={saveProfile} />
-        </div>
+						<Identity profile={profile} saveProfile={saveProfile}/>
+					</div>
 
         {/* Mode switch + live preview side by side on desktop */}
         <div className="main-split">
-          <div className="main-left">
-            {ui === "home" && <Landing />}
+						<div className="main-left">
+            {ui === "home" && <Landing/>}
             {ui === "calendar" && (
               <>
-                <div className="mode-note">Calendar mode: expand months to pick. (Both Most/Least require service; counters auto-renumber.)</div>
-                <CalendarMode
-                  prefs={prefs}
-                  setMost={(id, v) => requireName && setMost(id, v)}
+								<div className="mode-note">Calendar mode: expand months to pick. (Both Most/Least require service; counters auto-renumber.)</div>
+								<CalendarMode prefs={prefs} setMost={(id, v)=> requireName && setMost(id, v)}
                   setLeast={(id, v) => requireName && setLeast(id, v)}
                   collapsed={collapsed}
                   setCollapsed={setCollapsed}
@@ -1529,38 +1479,37 @@ export default function App() {
                 />
               </>
             )}
-            {ui === "quick" && <QuickAdd prefs={prefs} setPrefs={requireName ? setPrefs : () => {}} requireName={requireName} />}
-            {ui === "rank" && <RankBoard prefs={prefs} setPrefs={requireName ? setPrefs : () => {}} requireName={requireName} />}
-            {ui === "drag" && <DragBuckets prefs={prefs} setPrefs={requireName ? setPrefs : () => {}} requireName={requireName} />}
+            {ui === "quick" && <QuickAdd prefs={prefs} setPrefs={requireName ? setPrefs : ()=> {}} requireName={requireName} />}
+            {ui === "rank" && <RankBoard prefs={prefs} setPrefs={requireName ? setPrefs : ()=> {}} requireName={requireName} />}
+            {ui === "drag" && <DragBuckets prefs={prefs} setPrefs={requireName ? setPrefs : ()=> {}} requireName={requireName} />}
           </div>
-          <div className="main-right">
-            <LivePreview prefs={prefs} />
-            <CommandPalette onCommand={requireName ? onCommand : () => {}} disabled={!requireName} />
+										<div className="main-right">
+											<LivePreview prefs={prefs}/>
+											<CommandPalette onCommand={requireName ? onCommand : ()=> {}} disabled={!requireName} />
             <div className="build-tag">Build: {__APP_VERSION__}</div>
-          </div>
-        </div>
+											</div>
+										</div>
 
         {/* Admin CSV (when ?admin=1) */}
         {isAdmin && (
           <div className="admin">
-            <div className="admin-title">Admin Export</div>
-            <BarButton
-              onClick={() => downloadCSV("admin.csv", adminRows)}
+											<div className="admin-title">Admin Export</div>
+											<BarButton onClick={()=> downloadCSV("admin.csv", adminRows)}
               title="Download admin.csv"
             >
               Download admin.csv
             </BarButton>
-          </div>
+										</div>
         )}
 
         {/* Name gate overlay (blocks interactions until a name is selected) */}
         {!profile.name && !submitted && (
           <div className="gate">
-            <div className="gate-inner">Select your name above to begin.</div>
-          </div>
+											<div className="gate-inner">Select your name above to begin.</div>
+										</div>
         )}
       </div>
-      <div className="band" />
-    </div>
+									<div className="band"/>
+								</div>
   );
 }
