@@ -481,7 +481,7 @@ export default function App() {
   function QuickAddMode() {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
-    the const [service, setService] = useState("");
+    const [service, setService] = useState("");
     const saturdays = months[mkey];
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
     const onAdd = () => add(date, service || null);
