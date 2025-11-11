@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useReducer, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useReducer, useState, useCallback, useRef } from "react";
 import "./App.css";
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 /* =========================================================
-   FIREBASE CONFIG (unchanged fallbacks)
+   FIREBASE CONFIG (keeps your original fallbacks)
 ========================================================= */
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
@@ -27,11 +27,10 @@ const firebaseConfig = (() => {
   }
   return LOCAL_FALLBACK;
 })();
-
 const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v16.0";
 
 /* =========================================================
-   CONSTANTS (kept as you supplied)
+   CONSTANTS + DATA (unchanged structures)
 ========================================================= */
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
@@ -81,7 +80,7 @@ const ATTENDING_CODES = {
 };
 
 /* =========================================================
-   CALENDAR DATA (your same structure)
+   CALENDAR DATA (same as before)
 ========================================================= */
 const months = {
   "01": [
@@ -166,15 +165,19 @@ const MONTH_FULL  = ["January","February","March","April","May","June","July","A
 const MONTH_ABBR  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /* =========================================================
-   HELPERS (unchanged behavior, plus a few)
+   HELPERS — rank compression + guards
 ========================================================= */
-const fmtLabel = (dateStr) => {
+function compressRanks(list) {
+  return list.map((x, i) => ({ ...x, rank: i + 1 }));
+}
+function fmtLabel(dateStr) {
   const [y,m,d] = dateStr.split("-");
   return `${MONTH_ABBR[parseInt(m,10)-1]} ${parseInt(d,10)}`;
-};
-const getAvailableServicesForDate = (date) => {
+}
+function peerKey(d){ return `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`; }
+function getAvailableServicesForDate(date) {
   for (const mk of MONTH_KEYS) {
-    const hit = months[mk].find(d => d.date === date);
+    const hit = months[mk].find((d) => d.date === date);
     if (hit) {
       const out = [];
       if (!hit.rni) out.push(SERVICES.RNI);
@@ -183,54 +186,55 @@ const getAvailableServicesForDate = (date) => {
     }
   }
   return [SERVICES.RNI, SERVICES.COA];
-};
-const nextRank = (list) => (list.length ? Math.max(...list.map(x => x.rank ?? 0)) + 1 : 1);
-const compressRanks = (list) =>
-  [...list]
-    .sort((a,b) => (a.rank ?? 999) - (b.rank ?? 999))
-    .map((it, i) => ({ ...it, rank: i + 1 }));
+}
 
 /* =========================================================
-   STATE — SINGLE RANKING LIST (no Most/Least)
+   STATE — Single rankings bucket
    Invariants:
-   - A weekend (date) can appear at most once in the ranking
-   - You cannot add BOTH services for the same weekend
-   - Ranks compress to 1..N after any change/reorder
+   - Can't choose both services on same weekend.
+   - Can't duplicate service+date.
+   - Drag reorder renumbers 1..N.
 ========================================================= */
-const initialState = { ranking: [] };
+const initialState = { rankings: [] }; // [{date, service, rank}]
+function hasDate(list, date) { return list.some(x => x.date === date); }
+function hasDateService(list, date, service) { return list.some(x => x.date === date && x.service === service); }
 
 function reducer(state, action) {
   switch (action.type) {
     case "add": {
-      const { date, service, rank } = action;
+      const { date, service } = action;
       if (!service) return state;
-      // block if date already exists (any service)
-      if (state.ranking.some(x => x.date === date)) return state;
-      const added = [...state.ranking, { date, service, rank: rank ?? nextRank(state.ranking) }];
-      return { ranking: compressRanks(added) };
+      // block duplicate service/date
+      if (hasDateService(state.rankings, date, service)) return state;
+      // block both services on same date
+      if (hasDate(state.rankings, date)) return state;
+      const next = [...state.rankings, { date, service, rank: state.rankings.length + 1 }];
+      return { rankings: next };
     }
     case "remove": {
-      const filtered = state.ranking.filter(x => !(x.date === action.date && x.service === action.service));
-      return { ranking: compressRanks(filtered) };
+      const next = state.rankings.filter(x => !(x.date === action.date && x.service === action.service));
+      return { rankings: compressRanks(next) };
     }
     case "reorder": {
-      const { fromIndex, toIndex } = action;
-      if (fromIndex === toIndex) return state;
-      const arr = [...state.ranking];
-      const [moved] = arr.splice(fromIndex, 1);
-      arr.splice(toIndex, 0, moved);
-      return { ranking: compressRanks(arr) };
+      const { from, to } = action; // indices (0-based)
+      if (from === to || from < 0 || to < 0 || from >= state.rankings.length || to >= state.rankings.length) return state;
+      const next = [...state.rankings];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return { rankings: compressRanks(next) };
     }
     case "clear":
       return initialState;
-    default:
-      return state;
+    default: return state;
   }
 }
 
 /* =========================================================
-   Shared components
+   Small atoms
 ========================================================= */
+function Pill({ children, tone = "default" }) {
+  return <span className={`pill pill-${tone}`}>{children}</span>;
+}
 function Section({ title, children, right }) {
   return (
     <section className="section">
@@ -243,55 +247,8 @@ function Section({ title, children, right }) {
   );
 }
 
-function Pill({ children, tone = "default" }) {
-  return <span className={`pill pill-${tone}`}>{children}</span>;
-}
-
-/* -------- Draggable Rank List (works everywhere) -------- */
-function RankList({ items, onRemove, onReorder }) {
-  const [dragIndex, setDragIndex] = useState(null);
-
-  const onDragStart = (i, e) => {
-    setDragIndex(i);
-    // give the browser a drag image so it doesn’t jump
-    const crt = document.createElement("div");
-    crt.style.opacity = "0";
-    document.body.appendChild(crt);
-    e.dataTransfer.setDragImage(crt, 0, 0);
-    setTimeout(() => document.body.removeChild(crt), 0);
-  };
-  const onDragOver = (i, e) => {
-    e.preventDefault();
-  };
-  const onDrop = (i, e) => {
-    e.preventDefault();
-    if (dragIndex === null || dragIndex === i) return;
-    onReorder(dragIndex, i);
-    setDragIndex(null);
-  };
-
-  return (
-    <ol className="bucket-list">
-      {items.map((x, i) => (
-        <li
-          key={`${x.date}-${x.service}`}
-          className="bucket-item"
-          draggable
-          onDragStart={(e) => onDragStart(i, e)}
-          onDragOver={(e) => onDragOver(i, e)}
-          onDrop={(e) => onDrop(i, e)}
-          title="Drag to reorder"
-        >
-          <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-          <button className="btn-link" onClick={() => onRemove(x.date, x.service)}>remove</button>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
 /* =========================================================
-   MAIN APP
+   Main App
 ========================================================= */
 export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), []);
@@ -316,20 +273,23 @@ export default function App() {
     } catch { return false; }
   }, [selected]);
 
+  // Code gate
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [gateErr, setGateErr] = useState("");
 
-  const [mode, setMode] = useState(MODES.CAL);
-  const [{ ranking }, dispatch] = useReducer(reducer, initialState);
+  const [mode, setMode] = useState(MODES.RB); // keep RankBoard default to spotlight single ranking
+  const [{ rankings }, dispatch] = useReducer(reducer, initialState);
 
-  /* ---------- CSV download ---------- */
+  /* ===== CSV download ===== */
   const downloadCSV = () => {
-    if (!selected) { alert("Verify your name/code first."); return; }
-    const rows = compressRanks(ranking);
+    if (!selected) { alert("Please verify your name/code first."); return; }
     const headers = ["name","date","service","rank"];
-    const esc = v => `"${String(v ?? "").replace(/"/g,'""')}"`;
-    const csv = [headers.join(","), ...rows.map(r => headers.map(h => esc(h==="name"?selected.name:r[h])).join(","))].join("\n");
+    const rows = compressRanks(rankings).map(x => ({
+      name: selected.name, date: x.date, service: x.service, rank: x.rank
+    }));
+    const esc = (v) => `"${String(v ?? "").replace(/"/g,'""')}"`;
+    const csv = [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -341,37 +301,29 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  /* ---------- Submit (ask to download & verify first) ---------- */
+  /* ===== Submit with verification nudge ===== */
   const submit = async () => {
-    if (!selected) { alert("Please log in with your code first."); return; }
-    const msg = "Before submitting, please download your CSV and verify your preferences are correct.\n\nClick OK to proceed with submission, or Cancel to review.";
-    if (!window.confirm(msg)) return;
+    if (!selected) { alert("Log in with your code first."); return; }
+    const want = window.confirm(
+      "Before submitting, please download your CSV and verify the dates, services, and ranks are correct.\n\nClick OK to download the CSV now. After you check it, click Submit again to save, or Cancel here to return."
+    );
+    if (want) { downloadCSV(); return; } // user will click Submit again after verifying
 
-    const payload = {
-      appId,
-      title: "UAB/COA Weekend Attending Scheduler 2026",
-      year: YEAR,
-      who: selected.name,
-      email: selected.email,
-      ranking: compressRanks(ranking),
-      ts: serverTimestamp(),
-      isAdmin
-    };
+    // If user clicks Cancel above (meaning they already verified or want to proceed), save now:
+    const payload = { appId, year: YEAR, who: selected.name, email: selected.email, rankings: compressRanks(rankings), ts: serverTimestamp(), isAdmin };
     try {
       await setDoc(doc(db, "prefs", `${YEAR}-${selected.name}`), payload);
       alert("Saved to Firestore.");
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save.");
-    }
+    } catch (e) { console.error(e); alert("Failed to save."); }
   };
 
-  /* ---------- Shared add/remove/reorder ---------- */
-  const addPick = (date, service, rank) => dispatch({ type: "add", date, service, rank });
-  const removePick = (date, service) => dispatch({ type: "remove", date, service });
-  const reorder = (fromIndex, toIndex) => dispatch({ type: "reorder", fromIndex, toIndex });
+  /* ===== add/remove helpers ===== */
+  const add = useCallback((date, service) => dispatch({ type: "add", date, service }), []);
+  const remove = useCallback((date, service) => dispatch({ type: "remove", date, service }), []);
+  const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
+  const onReorder = (from, to) => dispatch({ type: "reorder", from, to });
 
-  /* ---------- Collapsible Month ---------- */
+  /* ===== Collapsible month ===== */
   function CollapsibleMonth({ title, children, defaultCollapsed = true }) {
     const [open, setOpen] = useState(!defaultCollapsed);
     return (
@@ -385,16 +337,52 @@ export default function App() {
     );
   }
 
-  /* =========================================================
-     MODES
-  ========================================================= */
+  /* ===== Drag handle for Rankings (pure HTML5 dnd) ===== */
+  function RankingsList() {
+    const [dragIndex, setDragIndex] = useState(null);
+    const onDragStart = (i) => () => setDragIndex(i);
+    const onDragOver = (i) => (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
+    const onDrop = (i) => (e) => {
+      e.preventDefault();
+      if (dragIndex === null) return;
+      onReorder(dragIndex, i);
+      setDragIndex(null);
+    };
+    const onDragEnd = () => setDragIndex(null);
 
-  /* ---- Calendar: inline service buttons (one click) ---- */
+    return (
+      <ol className="bucket-list">
+        {compressRanks(rankings).map((x, i) => (
+          <li
+            key={`${x.date}-${x.service}`}
+            className="bucket-item"
+            draggable
+            onDragStart={onDragStart(i)}
+            onDragOver={onDragOver(i)}
+            onDrop={onDrop(i)}
+            onDragEnd={onDragEnd}
+            aria-grabbed={dragIndex === i}
+            title="Drag to reorder"
+          >
+            <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
+            <button className="btn-link" onClick={() => remove(x.date, x.service)}>remove</button>
+          </li>
+        ))}
+      </ol>
+    );
+  }
+
+  /* ===== Service popover for DragBuckets (cursor-anchored) ===== */
+  const [svcPopover, setSvcPopover] = useState(null);
+  // { x, y, date } ; appears near pointer
+  const closeSvcPopover = () => setSvcPopover(null);
+
+  /* ===== Modes ===== */
   function CalendarMode() {
     const onClickSvc = (date, service) => {
       const avail = getAvailableServicesForDate(date);
-      if (!avail.includes(service)) return;
-      addPick(date, service);
+      if (!avail.includes(service)) return; // guard
+      add(date, service);
     };
     return (
       <div className="months">
@@ -405,7 +393,7 @@ export default function App() {
                 const taken = d.isTaken;
                 const avail = getAvailableServicesForDate(d.date);
                 return (
-                  <div key={d.date} className={`day ${taken ? "is-disabled" : ""}`}>
+                  <div key={peerKey(d)} className={`day ${taken ? "is-disabled" : ""}`}>
                     <div className="day-top">
                       <span className="day-label">{d.day}</span>
                       <span className="day-date">({fmtLabel(d.date)})</span>
@@ -430,13 +418,13 @@ export default function App() {
     );
   }
 
-  /* ---- QuickAdd (kept, single ranking) ---- */
   function QuickAddMode() {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
     const [service, setService] = useState("");
     const saturdays = months[mkey];
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
+    const onAdd = () => add(date, service || null);
     return (
       <div className="row wrap gap">
         <select className="select" value={mkey} onChange={(e) => setMkey(e.target.value)}>
@@ -444,37 +432,39 @@ export default function App() {
         </select>
         <select className="select" value={date} onChange={(e) => setDate(e.target.value)}>
           <option value="">Pick Saturday</option>
-          {saturdays.map((d) => (
-            <option key={d.date} value={d.date} disabled={d.isTaken}>
-              {fmtLabel(d.date)}{d.isTaken ? " (full)" : ""}
-            </option>
-          ))}
+          {saturdays.map((d) => (<option key={d.date} value={d.date} disabled={d.isTaken}>{fmtLabel(d.date)}{d.isTaken ? " (full)" : ""}</option>))}
         </select>
         <select className="select" value={service} onChange={(e) => setService(e.target.value)}>
           <option value="">Pick service</option>
-          {(date ? getAvailableServicesForDate(date) : [SERVICES.RNI, SERVICES.COA]).map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+          {(date ? getAvailableServicesForDate(date) : [SERVICES.RNI, SERVICES.COA]).map((s) => (<option key={s} value={s}>{s}</option>))}
         </select>
-        <button className="btn btn-green" onClick={() => addPick(date, service)}>Add</button>
+        <button className="btn btn-green" onClick={onAdd}>Add</button>
       </div>
     );
   }
 
-  /* ---- RankBoard: compact list with RNI/COA one-click ---- */
   function RankBoardMode() {
-    const row = (d) => {
+    const renderRow = (d) => {
       const avail = getAvailableServicesForDate(d.date);
       const disabled = d.isTaken || avail.length === 0;
+      const svcBtn = (svc) => (
+        <button
+          className="btn btn-svc"
+          disabled={disabled || !avail.includes(svc)}
+          onClick={() => add(d.date, svc)}
+        >
+          {svc} → Rank
+        </button>
+      );
       return (
-        <div key={d.date} className="rb-row">
+        <div key={peerKey(d)} className="rb-row">
           <div>
             <div className="rb-label">{fmtLabel(d.date)}</div>
             {d.detail && <div className="rb-detail">{d.detail}</div>}
           </div>
           <div className="rb-actions">
-            <button className="btn btn-svc" disabled={disabled || !avail.includes(SERVICES.RNI)} onClick={() => addPick(d.date, SERVICES.RNI)}>RNI → Rank</button>
-            <button className="btn btn-svc" disabled={disabled || !avail.includes(SERVICES.COA)} onClick={() => addPick(d.date, SERVICES.COA)}>COA → Rank</button>
+            {svcBtn(SERVICES.RNI)}
+            {svcBtn(SERVICES.COA)}
             {avail.length === 0 && <Pill tone="muted">Full</Pill>}
           </div>
         </div>
@@ -482,68 +472,52 @@ export default function App() {
     };
     return (
       <div className="rb-list">
-        <div className="muted" style={{marginBottom:8}}>One list. #1 is most preferred. Drag to reorder.</div>
+        <div className="muted" style={{marginBottom:8}}>One click adds to Rankings. Drag inside Rankings to reorder; #1 is most preferred.</div>
         {MONTH_KEYS.map((mk, i) => (
           <CollapsibleMonth key={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
-            {months[mk].map(row)}
+            {months[mk].map(renderRow)}
           </CollapsibleMonth>
         ))}
       </div>
     );
   }
 
-  /* ---- DragBuckets: chips + contextual service popover near cursor ---- */
   function DragBucketsMode() {
-    const [drag, setDrag] = useState(null); // { date }
-    const [svcPrompt, setSvcPrompt] = useState(null); // { date, x, y }
-
-    const chosenDates = new Set(ranking.map(x => x.date));
-    const groups = useMemo(() => {
+    const [drag, setDrag] = useState(null);
+    const chips = useMemo(() => {
+      const chosenDates = new Set(rankings.map(x => x.date));
       return MONTH_KEYS.map((mk, i) => ({
-        mkey: mk,
-        label: MONTH_FULL[i],
-        items: months[mk]
-          .filter(d => !d.isTaken && !chosenDates.has(d.date))
-          .map(d => ({ date: d.date }))
+        mkey: mk, label: MONTH_FULL[i],
+        items: months[mk].filter(d => !d.isTaken && !chosenDates.has(d.date)).map(d => ({ date: d.date }))
       }));
-    }, [ranking]);
+    }, [rankings]);
 
-    const onDropToRank = (e) => {
+    const onDropGeneric = (e, date) => {
       e.preventDefault();
-      if (!drag) return;
-      const { clientX: x, clientY: y } = e;
-      const avail = getAvailableServicesForDate(drag.date);
-      if (avail.length === 1) {
-        addPick(drag.date, avail[0]);
-      } else if (avail.length === 2) {
-        // open popover RIGHT HERE
-        setSvcPrompt({ date: drag.date, x, y });
-      }
-      setDrag(null);
-    };
-
-    const clickChip = (e, date) => {
       const avail = getAvailableServicesForDate(date);
-      if (avail.length === 1) addPick(date, avail[0]);
-      else setSvcPrompt({ date, x: e.clientX, y: e.clientY });
+      if (avail.length === 0) return;
+      // Anchor popover at cursor if both available; otherwise one-click to the only service
+      if (avail.length === 1) {
+        add(date, avail[0]);
+      } else {
+        setSvcPopover({ x: e.clientX, y: e.clientY, date });
+      }
     };
 
     return (
       <div className="drag-grid">
         <div>
-          <div className="muted">Drag a date into the Rankings box (or click a chip). If both services are open, a picker appears beside your cursor.</div>
-          {groups.map(g => (
-            <div key={g.mkey} className="chip-group">
-              <div className="chip-title">{g.label}</div>
+          <div className="muted">Drag a date chip into the Rankings area. If both services are open, a “Pick service” popover appears near your cursor.</div>
+          {chips.map(group => (
+            <div key={group.mkey} className="chip-group">
+              <div className="chip-title">{group.label}</div>
               <div className="chip-row">
-                {g.items.map(it => (
+                {group.items.map(it => (
                   <div
                     key={it.date}
                     draggable
-                    onDragStart={() => setDrag({ date: it.date })}
+                    onDragStart={(ev) => { setDrag(it.date); ev.dataTransfer.setData("text/plain", it.date); }}
                     className="chip"
-                    onClick={(e) => clickChip(e, it.date)}
-                    title="Drag to rankings or click to choose service"
                   >
                     {fmtLabel(it.date)}
                   </div>
@@ -556,34 +530,47 @@ export default function App() {
         <div
           className="bucket"
           onDragOver={(e) => e.preventDefault()}
-          onDrop={onDropToRank}
-          style={{ minHeight: 220 }}
+          onDrop={(e) => {
+            const date = drag || e.dataTransfer.getData("text/plain");
+            if (!date) return;
+            onDropGeneric(e, date);
+            setDrag(null);
+          }}
         >
-          <div className="bucket-title">Rankings (drag to reorder; #1 is most preferred)</div>
-          <RankList
-            items={compressRanks(ranking)}
-            onRemove={(d,s) => removePick(d,s)}
-            onReorder={reorder}
-          />
+          <div className="bucket-title">Rankings (drag to reorder)</div>
+          <RankingsList />
         </div>
 
-        {/* Contextual service popover (absolute near cursor) */}
-        {svcPrompt && (
+        {svcPopover && (
           <div
-            className="modal-card"
-            style={{
-              position: "fixed",
-              left: Math.min(svcPrompt.x + 8, window.innerWidth - 240),
-              top:  Math.min(svcPrompt.y + 8, window.innerHeight - 140),
-              zIndex: 1000,
-              padding: 12
-            }}
+            className="modal"
+            onClick={closeSvcPopover}
+            style={{ background: "transparent" }}
           >
-            <div className="modal-title">{fmtLabel(svcPrompt.date)}</div>
-            <div className="row gap">
-              <button className="btn btn-green" onClick={() => { addPick(svcPrompt.date, SERVICES.RNI); setSvcPrompt(null); }}>RNI</button>
-              <button className="btn btn-amber" onClick={() => { addPick(svcPrompt.date, SERVICES.COA); setSvcPrompt(null); }}>COA</button>
-              <button className="btn" onClick={() => setSvcPrompt(null)}>Cancel</button>
+            <div
+              className="modal-card"
+              style={{
+                position: "fixed",
+                left: Math.max(12, svcPopover.x - 160),
+                top: Math.max(12, svcPopover.y - 20),
+                width: 320,
+                pointerEvents: "auto"
+              }}
+              onClick={(e)=>e.stopPropagation()}
+            >
+              <div className="modal-title">{fmtLabel(svcPopover.date)}</div>
+              <div className="row gap">
+                {getAvailableServicesForDate(svcPopover.date).map(s => (
+                  <button
+                    key={s}
+                    className="btn btn-green"
+                    onClick={() => { add(svcPopover.date, s); closeSvcPopover(); }}
+                  >
+                    {s} → Rank
+                  </button>
+                ))}
+                <button className="btn" onClick={closeSvcPopover}>Cancel</button>
+              </div>
             </div>
           </div>
         )}
@@ -591,15 +578,11 @@ export default function App() {
     );
   }
 
-  /* =========================================================
-     Topbar + Login
-  ========================================================= */
+  /* ===== Topbar ===== */
   const topBar = (
     <div className="topbar">
       <div className="topbar-inner">
-        <div className="section-title" style={{textTransform:"none", letterSpacing:0}}>
-          UAB/COA Weekend Attending Scheduler 2026
-        </div>
+        <div style={{fontWeight:700}}>UAB/COA Weekend Attending Scheduler 2026</div>
         <div className="spacer" />
         <select className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
           <option value={MODES.CAL}>Calendar</option>
@@ -607,13 +590,14 @@ export default function App() {
           <option value={MODES.RB}>RankBoard</option>
           <option value={MODES.DB}>DragBuckets</option>
         </select>
-        <span className="badge">{firebaseConfig.projectId}{isAdmin ? " — ADMIN" : ""}</span>
-        <button className="btn" onClick={downloadCSV}>Download CSV</button>
-        <button className="btn btn-green" onClick={submit}>Submit</button>
+        <span className="badge" style={{marginLeft:8}}>{firebaseConfig.projectId}{isAdmin ? " — ADMIN" : ""}</span>
+        <button className="btn" style={{marginLeft:8}} onClick={downloadCSV}>Download CSV</button>
+        <button className="btn btn-green" style={{marginLeft:8}} onClick={submit}>Submit</button>
       </div>
     </div>
   );
 
+  /* ===== Login (code gate) ===== */
   const loginPanel = (
     <div className="login">
       <div className="login-title">Enter your one-time code</div>
@@ -644,7 +628,7 @@ export default function App() {
         </button>
       </div>
       {gateErr && <div className="error">{gateErr}</div>}
-      <div className="muted">Your name will lock in after verification.</div>
+      <div className="muted">After verification your name is locked in.</div>
     </div>
   );
 
@@ -666,17 +650,12 @@ export default function App() {
               )}
             </Section>
           </div>
-
           <aside className="side">
-            <Section title="Live Preview" right={<button className="btn-link" onClick={() => dispatch({type:"clear"})}>Clear all</button>}>
-              <RankList
-                items={compressRanks(ranking)}
-                onRemove={(d,s) => removePick(d,s)}
-                onReorder={reorder}
-              />
-              <div className="helper" style={{marginTop:8}}>
-                Rules: One pick per weekend (RNI or COA, not both). Ranks compress to 1…N. Drag to reorder (#1 is most preferred).
-              </div>
+            <Section
+              title="Rankings (drag to reorder; #1 is most preferred)"
+              right={<button className="btn-link" onClick={clearAll}>Clear all</button>}
+            >
+              <RankingsList />
             </Section>
 
             <Section title="Who">
