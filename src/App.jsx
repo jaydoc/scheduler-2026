@@ -79,6 +79,28 @@ const ATTENDING_CODES = {
   "vvalcarceluaces@uabmc.edu": "UAB26-A4N8GY",
 };
 
+/* ====== NEW: limits table used for the short notice after login ====== */
+const ATTENDING_LIMITS = {
+  Ambal:     { requested: 6,  claimed: 4, left: 2 },
+  Schuyler:  { requested: 3,  claimed: 2, left: 1 },
+  Mackay:    { requested: 5,  claimed: 1, left: 4 },
+  Kane:      { requested: 1,  claimed: 1, left: 0 },
+  Salas:     { requested: 3,  claimed: 0, left: 3 },
+  Sims:      { requested: 8,  claimed: 4, left: 4 },
+  Travers:   { requested: 7,  claimed: 4, left: 3 },
+  Kandasamy: { requested: 10, claimed: 6, left: 4 },
+  Willis:    { requested: 9,  claimed: 4, left: 5 },
+  Bhatia:    { requested: 6,  claimed: 5, left: 1 },
+  Winter:    { requested: 5,  claimed: 3, left: 2 },
+  Boone:     { requested: 9,  claimed: 6, left: 3 },
+  Arora:     { requested: 9,  claimed: 7, left: 2 },
+  Jain:      { requested: 9,  claimed: 1, left: 8 },
+  Lal:       { requested: 0,  claimed: 0, left: 0 },
+  Shukla:    { requested: 9,  claimed: 1, left: 8 },
+  Vivian:    { requested: 0,  claimed: 0, left: 2 },
+  Carlo:     { requested: 5,  claimed: 5, left: 0 },
+};
+
 /* =========================================================
    CALENDAR DATA (same structure)
 ========================================================= */
@@ -306,6 +328,7 @@ export default function App() {
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode]   = useState("");
   const [gateErr, setGateErr]     = useState("");
+  const [showLimitsNotice, setShowLimitsNotice] = useState(false); // NEW
 
   const selected = useMemo(() => ATTENDINGS.find(a => a.name === me) || null, [me]);
   const isAdmin = useMemo(() => {
@@ -332,8 +355,7 @@ export default function App() {
     e.dataTransfer.effectAllowed = "move";
   };
   const onDragOverItem = (i) => (e) => {
-    // Needed so drop fires in most browsers
-    e.preventDefault();
+    e.preventDefault(); // required for drop to fire
     e.dataTransfer.dropEffect = "move";
   };
   const onDropItem = (i) => (e) => {
@@ -395,7 +417,7 @@ export default function App() {
     } catch (e) { console.error(e); alert("Failed to save."); }
   };
 
-  /* ---------- shared bits (unchanged) ---------- */
+  /* ---------- shared bits ---------- */
   function CollapsibleMonth({ title, children, defaultCollapsed = true }) {
     const [open, setOpen] = useState(!defaultCollapsed);
     return (
@@ -410,7 +432,7 @@ export default function App() {
   }
   const peerKey = (d) => `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`;
 
-  /* ---------- Modes with one-click service buttons (unchanged) ---------- */
+  /* ---------- Modes with one-click service buttons ---------- */
   function CalendarMode() {
     return (
       <div className="months">
@@ -537,7 +559,6 @@ export default function App() {
       const date = e.dataTransfer.getData("text/plain");
       if (!date) return;
       const avail = getAvailableServicesForDate(date);
-      // If both open, pop a picker near cursor
       if (avail.length > 1) {
         setPop({ x: e.clientX, y: e.clientY, date });
       } else if (avail.length === 1) {
@@ -634,7 +655,7 @@ export default function App() {
             const ok = code && gateCode && gateCode.toUpperCase() === code.toUpperCase();
             if (!ok) { setGateErr("Invalid code or attendee."); return; }
             const att = ATTENDINGS.find(a => a.email === gateEmail);
-            setGateErr(""); setMe(att.name);
+            setGateErr(""); setMe(att.name); setShowLimitsNotice(true); // show limits after login
           }}
         >
           Verify & Continue
@@ -643,6 +664,36 @@ export default function App() {
       {gateErr && <div className="error">{gateErr}</div>}
     </div>
   );
+
+  // ===== NEW: Limits notice (requested / chosen / left + chosen shifts) =====
+  const LimitsNotice = () => {
+    if (!me || !showLimitsNotice) return null;
+    const limits = ATTENDING_LIMITS[me];
+    const requested = limits?.requested ?? 0;
+    const chosen = compressRanks(rankings).length;
+    const left = Math.max(requested - chosen, 0);
+    return (
+      <div style={{
+        border:"1px solid #e5e7eb", background:"#fffbe6",
+        padding:12, borderRadius:10, marginBottom:12
+      }}>
+        <div style={{fontWeight:700, marginBottom:6}}>Targets for {me}</div>
+        <div style={{fontSize:14, marginBottom:6}}>
+          Requested: <b>{requested}</b> &nbsp;|&nbsp; Chosen: <b>{chosen}</b> &nbsp;|&nbsp; Left: <b>{left}</b>
+        </div>
+        <div style={{fontSize:13, color:"#475569", marginBottom:8}}>
+          Your current picks:
+          <ul style={{margin:"6px 0 0 18px"}}>
+            {compressRanks(rankings).map(r => (
+              <li key={`${r.date}-${r.service}`}>{fmtLabel(r.date)} ({r.service}) — rank #{r.rank}</li>
+            ))}
+            {compressRanks(rankings).length === 0 && <li>None yet.</li>}
+          </ul>
+        </div>
+        <button className="btn btn-green" onClick={()=> setShowLimitsNotice(false)}>OK</button>
+      </div>
+    );
+  };
 
   return (
     <div className="page">
@@ -679,6 +730,7 @@ export default function App() {
                   loginPanel
                 ) : (
                   <>
+                    <LimitsNotice /> {/* NEW short, dismissible notice; everything else stays the same */}
                     {mode === MODES.CAL && <CalendarMode/>}
                     {mode === MODES.QA  && <QuickAddMode/>}
                     {mode === MODES.RB  && <RankBoardMode/>}
