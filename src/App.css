@@ -5,7 +5,7 @@
 .content { display:grid; grid-template-columns: 2fr 1fr; gap:16px; padding:16px; }
 @media (max-width: 900px){ .content{ grid-template-columns:1fr; } }
 
-/* ===== Topbar (sticky, single row) ===== */
+/* ===== Topbar ===== */
 .topbar { position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:saturate(120%) blur(6px); border-bottom:1px solid #e5e7eb; }
 .topbar-inner { display:flex; align-items:center; gap:8px; padding:8px 12px; white-space:nowrap; overflow-x:auto; }
 .topbar-inner .spacer { flex:1 1 auto; }
@@ -36,6 +36,10 @@
 .btn-link:hover { text-decoration:underline; }
 .muted { color:#64748b; font-size:12px; }
 
+/* Service one-click buttons (compact) */
+.btn-svc { padding:4px 8px; font-size:12px; border-radius:999px; margin:2px 4px 0 0; }
+.svc-actions { margin-top:6px; display:flex; flex-wrap:wrap; }
+
 /* ===== Pills ===== */
 .pill { display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; font-size:11px; color:#475569; margin-right:6px; }
 .pill-muted { background:#f1f5f9; color:#94a3b8; }
@@ -50,28 +54,19 @@
 .month-toggle:hover { background:#eef2f7; }
 .chev { font-size:12px; color:#64748b; }
 .days { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; margin-top:8px; }
-.day { border:1px solid #e5e7eb; border-radius:10px; padding:8px; text-align:left; background:#fff; cursor:pointer; }
-.day:hover { background:#f8fafc; }
-.day.is-disabled { opacity:.5; cursor:not-allowed; }
+.day { border:1px solid #e5e7eb; border-radius:10px; padding:8px; text-align:left; background:#fff; }
+.day.is-disabled { opacity:.5; }
 .day-top { display:flex; align-items:baseline; gap:6px; }
 .day-label { font-weight:600; }
 .day-date { color:#64748b; font-size:12px; }
 .day-detail { color:#64748b; font-size:11px; margin-top:2px; }
-.day-badges { margin-top:6px; }
 
-/* ===== RankBoard list (ALT layout) ===== */
+/* ===== RankBoard list ===== */
 .rb-list { display:block; }
-.rowitem { border:1px solid #e5e7eb; border-radius:10px; padding:8px; margin-top:8px; background:#fff; }
-.rb-row { display:grid; grid-template-columns: 1fr auto auto; gap:10px; align-items:center; }
+.rb-row { display:flex; align-items:center; justify-content:space-between; border:1px solid #e5e7eb; border-radius:10px; padding:8px; margin-top:8px; background:#fff; flex-wrap:wrap; gap:8px; }
 .rb-label { font-weight:600; }
 .rb-detail { font-size:11px; color:#64748b; }
-.rb-badges { white-space:nowrap; }
-.rb-actions { display:flex; gap:8px; }
-
-/* ===== Modal ===== */
-.modal { position:fixed; inset:0; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; padding:16px; }
-.modal-card { background:#fff; border-radius:12px; padding:16px; width:100%; max-width:420px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
-.modal-title { font-weight:700; margin-bottom:8px; }
+.rb-actions { display:flex; gap:6px; flex-wrap:wrap; }
 
 /* ===== Drag & Buckets ===== */
 .drag-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
@@ -81,7 +76,7 @@
 .chip-row { display:flex; gap:8px; overflow-x:auto; padding:4px 0; }
 .chip { padding:6px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; cursor:grab; white-space:nowrap; }
 
-.buckets { display:grid; grid-template-columns: 1fr 1fr; gap:24px; } /* extra space between columns */
+.buckets { display:grid; grid-template-columns: 1fr 1fr; gap:24px; } /* extra space between Most/Least */
 .bucket { background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px; min-height:160px; }
 .bucket-title { font-weight:700; margin-bottom:6px; }
 .bucket-list { list-style:none; padding:0; margin:0; }
@@ -97,7 +92,6 @@
 .helper { margin-top:8px; color:#64748b; font-size:11px; }
 
 .id-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
-.id-label { font-size:14px; font-weight:700; }
 .id-select { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; min-width:220px; font-size:14px; }
 
 .login { padding:8px; }
@@ -107,4 +101,3 @@
 /* ===== Utilities ===== */
 .right { justify-content:flex-end; }
 .gap > * + * { margin-left:8px; }
-.gate { padding:8px; }

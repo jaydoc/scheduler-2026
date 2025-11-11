@@ -27,10 +27,10 @@ const firebaseConfig = (() => {
   }
   return LOCAL_FALLBACK;
 })();
-const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v15.2";
+const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v15.3";
 
 /* =========================================================
-   CONSTANTS + DATA
+   CONSTANTS + DATA (unchanged structures)
 ========================================================= */
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
@@ -80,7 +80,7 @@ const ATTENDING_CODES = {
 };
 
 /* =========================================================
-   CALENDAR DATA (Saturdays only; example state)
+   CALENDAR DATA (same as what you sent)
 ========================================================= */
 const months = {
   "01": [
@@ -165,7 +165,7 @@ const MONTH_FULL  = ["January","February","March","April","May","June","July","A
 const MONTH_ABBR  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
 /* =========================================================
-   HELPERS — Rank compression + conflict guards
+   HELPERS — ranks + availability
 ========================================================= */
 function compressRanks(list) {
   const sorted = [...list].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
@@ -190,51 +190,45 @@ function fmtLabel(dateStr) {
   const [y,m,d] = dateStr.split("-");
   return `${MONTH_ABBR[parseInt(m,10)-1]} ${parseInt(d,10)}`;
 }
+function peerKey(d){ return `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`; }
 
 /* =========================================================
-   STATE REDUCER — hard invariants
+   STATE — tight invariants
+   1) A weekend (date) cannot appear in both Most and Least.
+   2) Within a single bucket, you cannot have both RNI and COA for the same date.
+   3) Ranks compress to 1…N on any change.
 ========================================================= */
 const initialState = { most: [], least: [] };
 function enforceInvariants(state) {
-  // Same date cannot exist in both buckets
   const leastDates = new Set(state.least.map(x => x.date));
-  const mostClean = state.most.filter(x => !leastDates.has(x.date));
-
-  // Within each bucket, prevent duplicate dates (force single service per date)
+  const mostClean  = state.most.filter(x => !leastDates.has(x.date));
   const uniqByDate = (items) => {
     const seen = new Set(); const out = [];
-    for (const it of items) { const k = it.date; if (!seen.has(k)) { seen.add(k); out.push(it); } }
+    for (const it of items) { if (!seen.has(it.date)) { seen.add(it.date); out.push(it); } }
     return out;
   };
-
-  const mostUniq = uniqByDate(mostClean);
-  const leastUniq = uniqByDate(state.least);
-
-  return { most: compressRanks(mostUniq), least: compressRanks(leastUniq) };
+  return {
+    most:  compressRanks(uniqByDate(mostClean)),
+    least: compressRanks(uniqByDate(state.least)),
+  };
 }
 function reducer(state, action) {
   switch (action.type) {
     case "add": {
-      const { bucket, date } = action;
-      const service = action.service;
-
-      // cross-bucket mutual exclusion by date
+      const { bucket, date, service } = action;
+      if (!service) return state;
       if (bucket === "most" && hasDate(state.least, date)) return state;
       if (bucket === "least" && hasDate(state.most, date)) return state;
-
-      const list = bucket === "most" ? state.most : state.least;
+      const list  = bucket === "most" ? state.most : state.least;
       const other = bucket === "most" ? state.least : state.most;
-
-      // within a bucket, enforce one service per date
-      if (list.some(x => x.date === date && x.service !== service)) return state;
-      if (hasDateService(list, date, service)) return state;
-
+      if (list.some(x => x.date === date && x.service !== service)) return state;        // block RNI+COA in same bucket/date
+      if (hasDateService(list, date, service)) return state;                               // block duplicate
       const added = [...list, { date, service, rank: action.rank ?? nextRank(list) }];
-      const next = bucket === "most" ? { most: added, least: other } : { most: other, least: added };
+      const next  = bucket === "most" ? { most: added, least: other } : { most: other, least: added };
       return enforceInvariants(next);
     }
     case "remove": {
-      const list = action.bucket === "most" ? state.most : state.least;
+      const list  = action.bucket === "most" ? state.most : state.least;
       const other = action.bucket === "most" ? state.least : state.most;
       const filtered = list.filter(x => !(x.date === action.date && x.service === action.service));
       const next = action.bucket === "most" ? { most: filtered, least: other } : { most: other, least: filtered };
@@ -248,9 +242,6 @@ function reducer(state, action) {
 /* =========================================================
    Reusable atoms
 ========================================================= */
-function Pill({ children, tone = "default" }) {
-  return <span className={`pill pill-${tone}`}>{children}</span>;
-}
 function Section({ title, children, right }) {
   return (
     <section className="section">
@@ -262,9 +253,6 @@ function Section({ title, children, right }) {
     </section>
   );
 }
-function RowItem({ children }) {
-  return <div className="rowitem">{children}</div>;
-}
 
 /* =========================================================
    MAIN APP
@@ -272,7 +260,7 @@ function RowItem({ children }) {
 export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), []);
   const auth = useMemo(() => getAuth(app), [app]);
-  const db = useMemo(() => getFirestore(app), [app]);
+  const db   = useMemo(() => getFirestore(app), [app]);
 
   const [uid, setUid] = useState(null);
   useEffect(() => {
@@ -292,44 +280,53 @@ export default function App() {
     } catch { return false; }
   }, [selected]);
 
+  // Code-gate (unchanged behavior)
   const [gateEmail, setGateEmail] = useState("");
-  const [gateCode, setGateCode] = useState("");
-  const [gateErr, setGateErr] = useState("");
+  const [gateCode,  setGateCode]  = useState("");
+  const [gateErr,   setGateErr]   = useState("");
 
-  const [mode, setMode] = useState(MODES.CAL);
+  const [mode, setMode] = useState(MODES.RB); // default to RankBoard (your “alternative” view)
   const [{ most, least }, dispatch] = useReducer(reducer, initialState);
 
-  // Shared add/remove helpers
-  const [svcPick, setSvcPick] = useState(null); // { date, bucket }
-  const [svcChoice, setSvcChoice] = useState("");
-
   const addTo = useCallback((bucket, date, service, rank) => {
-    const avail = getAvailableServicesForDate(date);
-    let s = service;
-    if (!s) {
-      if (avail.length === 1) s = avail[0];
-      else { setSvcPick({ date, bucket }); return { ok: false, msg: "Pick a service" }; }
-    }
-    dispatch({ type: "add", bucket, date, service: s, rank });
-    return { ok: true };
+    if (!service) return { ok:false, msg:"Pick service" };
+    dispatch({ type: "add", bucket, date, service, rank });
+    return { ok:true };
   }, []);
   const removeFrom = useCallback((bucket, date, service) => dispatch({ type: "remove", bucket, date, service }), []);
-  const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
+  const clearAll   = useCallback(() => dispatch({ type: "clear" }), []);
 
   const submit = async () => {
     if (!selected) { alert("Log in with your code first."); return; }
-    const payload = { appId, year: YEAR, who: selected.name, email: selected.email, most: compressRanks(most), least: compressRanks(least), ts: serverTimestamp(), isAdmin };
+    const payload = {
+      appId, year: YEAR, who: selected.name, email: selected.email,
+      most: compressRanks(most), least: compressRanks(least),
+      ts: serverTimestamp(), isAdmin
+    };
     try {
       await setDoc(doc(db, "prefs", `${YEAR}-${selected.name}`), payload);
       alert("Saved to Firestore.");
     } catch (e) { console.error(e); alert("Failed to save."); }
   };
 
-  const closeSvc = () => { setSvcPick(null); setSvcChoice(""); };
-  const confirmSvc = () => {
-    if (!svcPick) return;
-    dispatch({ type: "add", bucket: svcPick.bucket, date: svcPick.date, service: svcChoice || null });
-    closeSvc();
+  /* ===== Download CSV preview ===== */
+  const downloadCSV = () => {
+    if (!selected) { alert("Please verify your name/code first."); return; }
+    const rows = [];
+    compressRanks(most).forEach(x => rows.push({ name: selected.name, date: x.date, service: x.service, bucket: "Most", rank: x.rank }));
+    compressRanks(least).forEach(x => rows.push({ name: selected.name, date: x.date, service: x.service, bucket: "Least", rank: x.rank }));
+    const headers = ["name","date","service","bucket","rank"];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g,'""')}"`;
+    const csv = [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${YEAR}-${selected.name}-preferences.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   /* -------------------- Collapsible Month wrapper -------------------- */
@@ -346,79 +343,54 @@ export default function App() {
     );
   }
 
-  /* -------------------------- Calendar -------------------------- */
+  /* -------------------------- Calendar (inline service buttons) -------------------------- */
   function CalendarMode() {
-    const [active, setActive] = useState(null);
-    const [svc, setSvc] = useState("");
-    const onPickDay = (d) => {
-      const avail = getAvailableServicesForDate(d.date);
-      if (avail.length === 1) { addTo("most", d.date, avail[0]); return; }
-      setActive({ date: d.date });
-    };
-    const confirm = (bucket) => {
-      const r = addTo(bucket, active.date, svc || null);
-      if (!r.ok && r.msg === "Pick a service") return; // shared picker will open
-      setActive(null); setSvc("");
+    const onClickSvc = (date, service, bucket) => {
+      const avail = getAvailableServicesForDate(date);
+      if (!avail.includes(service)) return;
+      addTo(bucket, date, service);
     };
     return (
-      <div>
-        <div className="months">
-          {MONTH_KEYS.map((mk, i) => (
-            <CollapsibleMonth key={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
-              <div className="days">
-                {months[mk].map((d) => {
-                  const taken = d.isTaken;
-                  const avail = getAvailableServicesForDate(d.date);
-                  return (
-                    <button
-                      key={d.date}
-                      className={`day ${taken ? "is-disabled" : ""}`}
-                      disabled={taken}
-                      onClick={() => onPickDay(d)}
-                    >
-                      <div className="day-top">
-                        <span className="day-label">{d.day}</span>
-                        <span className="day-date">({fmtLabel(d.date)})</span>
-                      </div>
-                      {d.detail && <div className="day-detail">{d.detail}</div>}
-                      <div className="day-badges">
-                        {avail.length === 0 && <Pill tone="muted">Full</Pill>}
-                        {avail.includes(SERVICES.RNI) && <Pill>RNI open</Pill>}
-                        {avail.includes(SERVICES.COA) && <Pill>COA open</Pill>}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </CollapsibleMonth>
-          ))}
-        </div>
-
-        {active && (
-          <div className="modal">
-            <div className="modal-card">
-              <div className="modal-title">{fmtLabel(active.date)}</div>
-              <div className="row gap">
-                <select className="select" value={svc} onChange={(e) => setSvc(e.target.value)}>
-                  <option value="">Pick service</option>
-                  {getAvailableServicesForDate(active.date).map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="row right gap">
-                <button className="btn" onClick={() => { setActive(null); setSvc(""); }}>Cancel</button>
-                <button className="btn btn-green" onClick={() => confirm("most")}>Add to Most</button>
-                <button className="btn btn-amber" onClick={() => confirm("least")}>Add to Least</button>
-              </div>
+      <div className="months">
+        {MONTH_KEYS.map((mk, i) => (
+          <CollapsibleMonth key={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
+            <div className="days">
+              {months[mk].map((d) => {
+                const taken = d.isTaken;
+                const avail = getAvailableServicesForDate(d.date);
+                return (
+                  <div key={peerKey(d)} className={`day ${taken ? "is-disabled" : ""}`}>
+                    <div className="day-top">
+                      <span className="day-label">{d.day}</span>
+                      <span className="day-date">({fmtLabel(d.date)})</span>
+                    </div>
+                    {d.detail && <div className="day-detail">{d.detail}</div>}
+                    <div className="svc-actions">
+                      {avail.includes(SERVICES.RNI) && (
+                        <>
+                          <button className="btn btn-svc" disabled={taken} onClick={() => onClickSvc(d.date, SERVICES.RNI, "most")}>RNI → Most</button>
+                          <button className="btn btn-svc" disabled={taken} onClick={() => onClickSvc(d.date, SERVICES.RNI, "least")}>RNI → Least</button>
+                        </>
+                      )}
+                      {avail.includes(SERVICES.COA) && (
+                        <>
+                          <button className="btn btn-svc" disabled={taken} onClick={() => onClickSvc(d.date, SERVICES.COA, "most")}>COA → Most</button>
+                          <button className="btn btn-svc" disabled={taken} onClick={() => onClickSvc(d.date, SERVICES.COA, "least")}>COA → Least</button>
+                        </>
+                      )}
+                      {avail.length === 0 && <span className="pill pill-muted">Full</span>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        )}
+          </CollapsibleMonth>
+        ))}
       </div>
     );
   }
 
-  /* -------------------------- QuickAdd -------------------------- */
+  /* -------------------------- QuickAdd (unchanged) -------------------------- */
   function QuickAddMode() {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
@@ -449,40 +421,35 @@ export default function App() {
     );
   }
 
-  /* -------------------------- RankBoard (ALT LIST VIEW) -------------------------- */
+  /* -------------------------- RankBoard (service one-click) -------------------------- */
   function RankBoardMode() {
     const renderRow = (d) => {
       const avail = getAvailableServicesForDate(d.date);
       const disabled = d.isTaken || avail.length === 0;
-      const tryAdd = (bucket) => {
-        if (disabled) return;
-        if (avail.length === 1) addTo(bucket, d.date, avail[0]);
-        else setSvcPick({ date: d.date, bucket });
-      };
+      const svcBtns = (svc) => (
+        <>
+          <button className="btn btn-svc" disabled={disabled || !avail.includes(svc)} onClick={() => addTo("most", d.date, svc)}>{svc} → Most</button>
+          <button className="btn btn-svc" disabled={disabled || !avail.includes(svc)} onClick={() => addTo("least", d.date, svc)}>{svc} → Least</button>
+        </>
+      );
       return (
-        <RowItem key={d.date}>
-          <div className="rb-row">
-            <div className="rb-date">
-              <div className="rb-label">{fmtLabel(d.date)}</div>
-              {d.detail && <div className="rb-detail">{d.detail}</div>}
-            </div>
-            <div className="rb-badges">
-              {avail.length === 0 && <Pill tone="muted">Full</Pill>}
-              {avail.includes(SERVICES.RNI) && <Pill>RNI</Pill>}
-              {avail.includes(SERVICES.COA) && <Pill>COA</Pill>}
-            </div>
-            <div className="rb-actions">
-              <button className="btn btn-green" disabled={disabled} onClick={() => tryAdd("most")}>Most</button>
-              <button className="btn btn-amber" disabled={disabled} onClick={() => tryAdd("least")}>Least</button>
-            </div>
+        <div key={peerKey(d)} className="rb-row">
+          <div>
+            <div className="rb-label">{fmtLabel(d.date)}</div>
+            {d.detail && <div className="rb-detail">{d.detail}</div>}
           </div>
-        </RowItem>
+          <div className="rb-actions">
+            {svcBtns(SERVICES.RNI)}
+            {svcBtns(SERVICES.COA)}
+            {avail.length === 0 && <span className="pill pill-muted">Full</span>}
+          </div>
+        </div>
       );
     };
 
     return (
       <div className="rb-list">
-        <div className="muted" style={{marginBottom:8}}>Compact list: choose Most/Least. If both services open, a selector will appear.</div>
+        <div className="muted" style={{marginBottom:8}}>One click: choose service + bucket.</div>
         {MONTH_KEYS.map((mk, i) => (
           <CollapsibleMonth key={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
             {months[mk].map(renderRow)}
@@ -492,7 +459,7 @@ export default function App() {
     );
   }
 
-  /* -------------------------- DragBuckets -------------------------- */
+  /* -------------------------- DragBuckets (kept simple; default to RNI if both open) -------------------------- */
   function DragBucketsMode() {
     const [drag, setDrag] = useState(null);
     const chips = useMemo(() => {
@@ -505,18 +472,14 @@ export default function App() {
     const onDropTo = (bucket) => {
       if (!drag) return;
       const avail = getAvailableServicesForDate(drag.date);
-      if (avail.length === 0) return;
-      if (avail.length === 1) {
-        addTo(bucket, drag.date, avail[0]);
-      } else {
-        setSvcPick({ date: drag.date, bucket });
-      }
+      if (avail.includes(SERVICES.RNI)) addTo(bucket, drag.date, SERVICES.RNI);
+      else if (avail.includes(SERVICES.COA)) addTo(bucket, drag.date, SERVICES.COA);
       setDrag(null);
     };
     return (
       <div className="drag-grid">
         <div>
-          <div className="muted">Drag from Available into Most/Least. Ranks compress automatically.</div>
+          <div className="muted">Drag into Most/Least. Ranks compress automatically.</div>
           {chips.map(group => (
             <div key={group.mkey} className="chip-group">
               <div className="chip-title">{group.label}</div>
@@ -620,7 +583,7 @@ export default function App() {
         {topBar}
         <div className="content">
           <div className="main">
-            <Section title={mode}>
+            <Section title={mode} right={<button className="btn btn-green" onClick={downloadCSV}>Download CSV</button>}>
               {!me ? loginPanel : (
                 <>
                   {mode === MODES.CAL && <CalendarMode />}
@@ -658,7 +621,7 @@ export default function App() {
                 </div>
               </div>
               <div className="helper">
-                Invariants: (1) Same date cannot be in both Most and Least. (2) Within a list, RNI/COA are mutually exclusive. (3) Ranks always compress to 1…N.
+                Invariants: (1) Same weekend cannot be in both Most and Least. (2) Within a list, RNI/COA are mutually exclusive per date. (3) Ranks compress to 1…N.
               </div>
             </Section>
 
@@ -675,23 +638,6 @@ export default function App() {
         </div>
       </div>
       <div className="band" />
-
-      {/* GLOBAL service picker modal, visible in ALL modes */}
-      {svcPick && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="modal-title">{fmtLabel(svcPick.date)}</div>
-            <select className="select" value={svcChoice} onChange={(e) => setSvcChoice(e.target.value)}>
-              <option value="">Pick service</option>
-              {getAvailableServicesForDate(svcPick.date).map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <div className="row right gap" style={{marginTop:8}}>
-              <button className="btn" onClick={closeSvc}>Cancel</button>
-              <button className="btn btn-green" onClick={confirmSvc}>Add to {svcPick.bucket === "most" ? "Most" : "Least"}</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
