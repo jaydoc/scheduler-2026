@@ -4,8 +4,6 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
-import "./App.css"
-
 /**********************************
   FIREBASE CONFIG (keeps your original fallbacks)
 **********************************/
