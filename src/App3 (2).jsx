@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useReducer, useState, useCallback } from "react";
-import "./App.css";
 // Firebase SDK (v9+ modular)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
 
-/* =========================================================
-   FIREBASE CONFIG (keeps your original fallbacks)
-========================================================= */
+/**********************************
+  FIREBASE CONFIG (keeps your original fallbacks)
+**********************************/
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
   authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -28,15 +27,16 @@ const firebaseConfig = (() => {
   }
   return LOCAL_FALLBACK;
 })();
-const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v14.2";
+const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v14.0";
 
-/* =========================================================
-   CONSTANTS + DATA
-========================================================= */
+/**********************************
+  CONSTANTS + DATA
+**********************************/
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 const MODES = { CAL: "Calendar", QA: "QuickAdd", RB: "RankBoard", DB: "DragBuckets" };
 
+// ATTENDINGS (subset you provided — can be extended or fetched later)
 const ATTENDINGS = [
   { name: "Ambal",    email: "nambalav@uab.edu" },
   { name: "Arora",    email: "nitinarora@uabmc.edu" },
@@ -58,9 +58,7 @@ const ATTENDINGS = [
   { name: "Vivian",   email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* =========================================================
-   CALENDAR (SATURDAYS OF 2026) — source data
-========================================================= */
+// Calendar data (Saturdays of 2026) — copied from your snippet
 const months = {
   "01": [
     { day: "10",       date: "2026-01-10", rni: null,      coa: null },
@@ -141,11 +139,10 @@ const months = {
 };
 const MONTH_KEYS  = ["01","02","03","04","05","06","07","08","09","10","11","12"];
 const MONTH_FULL  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const MONTH_ABBR  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-/* =========================================================
-   HELPERS — Rank compression + conflict guards
-========================================================= */
+/**********************************
+  HELPERS — Rank compression + conflict guards
+**********************************/
 function compressRanks(list) {
   const sorted = [...list].sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
   return sorted.map((item, idx) => ({ ...item, rank: idx + 1 }));
@@ -165,88 +162,97 @@ function getAvailableServicesForDate(date) {
   }
   return [SERVICES.RNI, SERVICES.COA];
 }
-function fmtLabel(dateStr) {
-  const [y,m,d] = dateStr.split("-");
-  return `${MONTH_ABBR[parseInt(m,10)-1]} ${parseInt(d,10)}`;
-}
 
-/* =========================================================
-   SINGLE SOURCE OF TRUTH — reducer with hard invariants
-========================================================= */
+/**********************************
+  SINGLE SOURCE OF TRUTH (Reducer with hard invariants)
+**********************************/
 const initialState = { most: [], least: [] };
 function enforceInvariants(state) {
+  // 1) No date may exist in both lists (regardless of service)
   const leastDates = new Set(state.least.map(x => x.date));
   const mostClean = state.most.filter(x => !leastDates.has(x.date));
 
-  const uniqByDate = (items) => {
+  // 2) Within a list, a date may have only ONE service (RNI XOR COA)
+  const uniqBy = (items) => {
     const seen = new Set();
     const out = [];
     for (const it of items) {
-      const k = it.date;
-      if (!seen.has(k)) { seen.add(k); out.push(it); }
+      const key = `${it.date}`; // date only
+      if (!seen.has(key)) { seen.add(key); out.push(it); }
     }
     return out;
   };
-  const mostUniq = uniqByDate(mostClean);
-  const leastUniq = uniqByDate(state.least);
+  const mostUniq = uniqBy(mostClean);
+  const leastUniq = uniqBy(state.least);
 
+  // 3) Re-compress ranks
   return { most: compressRanks(mostUniq), least: compressRanks(leastUniq) };
 }
+
 function reducer(state, action) {
   switch (action.type) {
-    case "add": {
+    case "add": { // {bucket, date, service, rank?}
       const { bucket, date } = action;
       const service = action.service;
+      // hard guards before mutate
       if (bucket === "most" && hasDate(state.least, date)) return state;
       if (bucket === "least" && hasDate(state.most, date)) return state;
+
       const list = bucket === "most" ? state.most : state.least;
       const other = bucket === "most" ? state.least : state.most;
-      if (list.some(x => x.date === date && x.service !== service)) return state;
-      if (hasDateService(list, date, service)) return state;
-      const added = [...list, { date, service, rank: action.rank ?? nextRank(list) }];
-      const next = bucket === "most" ? { most: added, least: other } : { most: other, least: added };
+      if (list.some(x => x.date === date && x.service !== service)) return state; // XOR within list
+      if (hasDateService(list, date, service)) return state; // no duplicate
+
+      const next = {
+        most: bucket === "most" ? [...list, { date, service, rank: action.rank ?? nextRank(list) }] : state.most,
+        least: bucket === "least" ? [...list, { date, service, rank: action.rank ?? nextRank(list) }] : state.least,
+      };
+      // put other list back
+      if (bucket === "most") next.least = other; else next.most = other;
       return enforceInvariants(next);
     }
-    case "remove": {
+    case "remove": { // {bucket, date, service}
       const list = action.bucket === "most" ? state.most : state.least;
       const other = action.bucket === "most" ? state.least : state.most;
       const filtered = list.filter(x => !(x.date === action.date && x.service === action.service));
       const next = action.bucket === "most" ? { most: filtered, least: other } : { most: other, least: filtered };
       return enforceInvariants(next);
     }
-    case "clear": return initialState;
-    default: return state;
+    case "clear":
+      return initialState;
+    default:
+      return state;
   }
 }
 
-/* =========================================================
-   UI atoms
-========================================================= */
-function Pill({ children, tone = "default" }) {
-  return (
-    <span className={`pill pill-${tone}`}>{children}</span>
-  );
+/**********************************
+  UI atoms
+**********************************/
+function Pill({ children }) {
+  return (<span className="px-2 py-0.5 rounded-full bg-slate-100 border text-slate-700 text-xs mr-1">{children}</span>);
 }
 function Section({ title, children, right }) {
   return (
-    <section className="section">
-      <div className="section-head">
-        <h3 className="section-title">{title}</h3>
-        <div className="section-right">{right}</div>
+    <section className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-wide">{title}</h3>
+        {right}
       </div>
-      <div className="section-body">{children}</div>
+      <div className="rounded-xl border bg-white p-3 shadow-sm">{children}</div>
     </section>
   );
 }
 
-/* =========================================================
-   MAIN APP
-========================================================= */
+/**********************************
+  MAIN APP
+**********************************/
 export default function App() {
+  // Firebase init once
   const app = useMemo(() => initializeApp(firebaseConfig), []);
   const auth = useMemo(() => getAuth(app), [app]);
   const db = useMemo(() => getFirestore(app), [app]);
 
+  // Auth (anonymous is enough for now)
   const [uid, setUid] = useState(null);
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -256,13 +262,16 @@ export default function App() {
     return () => unsub();
   }, [auth]);
 
+  // Name gate
   const [me, setMe] = useState("");
   const [selected, setSelected] = useState(null);
   useEffect(() => { setSelected(ATTENDINGS.find(a => a.name === me) || null); }, [me]);
 
+  // Global UI state
   const [mode, setMode] = useState(MODES.CAL);
   const [{ most, least }, dispatch] = useReducer(reducer, initialState);
 
+  // Helpers exposed to children
   const addTo = useCallback((bucket, date, service, rank) => {
     const avail = getAvailableServicesForDate(date);
     let s = service;
@@ -273,52 +282,78 @@ export default function App() {
   const removeFrom = useCallback((bucket, date, service) => dispatch({ type: "remove", bucket, date, service }), []);
   const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
 
+  // Live preview across modes (always shown)
+  const preview = (
+    <div className="grid grid-cols-2 gap-2">
+      <div>
+        <h4 className="font-semibold mb-1">Most preferred</h4>
+        <ol className="space-y-1">
+          {compressRanks(most).map((x) => (
+            <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+              <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+              <button className="text-xs text-rose-600" onClick={() => removeFrom("most", x.date, x.service)}>remove</button>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div>
+        <h4 className="font-semibold mb-1">Least preferred</h4>
+        <ol className="space-y-1">
+          {compressRanks(least).map((x) => (
+            <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+              <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+              <button className="text-xs text-rose-600" onClick={() => removeFrom("least", x.date, x.service)}>remove</button>
+            </li>
+          ))}
+        </ol>
+      </div>
+    </div>
+  );
+
+  /**************
+    SAVE / SUBMIT
+  **************/
   const submit = async () => {
     if (!selected) { alert("Pick your name first."); return; }
     const payload = { appId, year: YEAR, who: selected.name, email: selected.email, most: compressRanks(most), least: compressRanks(least), ts: serverTimestamp() };
     try {
       await setDoc(doc(db, "prefs", `${YEAR}-${selected.name}`), payload);
       alert("Saved to Firestore.");
-    } catch (e) { console.error(e); alert("Failed to save."); }
+    } catch (e) {
+      console.error(e); alert("Failed to save.");
+    }
   };
 
+  /**************
+    MODE: Calendar
+  **************/
   function CalendarMode() {
-    const [active, setActive] = useState(null);
+    const [active, setActive] = useState(null); // {date}
     const [svc, setSvc] = useState("");
+
     const onPickDay = (d) => {
       const avail = getAvailableServicesForDate(d.date);
       if (avail.length === 1) { const res = addTo("most", d.date, avail[0]); if (!res.ok) alert(res.msg); return; }
       setActive({ date: d.date });
     };
-    const confirm = (bucket) => {
-      const res = addTo(bucket, active.date, svc || null);
-      if (!res.ok) alert(res.msg);
-      setActive(null); setSvc("");
-    };
+    const confirm = (bucket) => { const res = addTo(bucket, active.date, svc || null); if (!res.ok) alert(res.msg); setActive(null); setSvc(""); };
+
     return (
       <div>
-        <div className="months">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {MONTH_KEYS.map((mk, i) => (
-            <div key={mk} className="month">
-              <div className="month-title">{MONTH_FULL[i]}</div>
-              <div className="days">
+            <div key={mk} className="rounded-xl border p-3">
+              <div className="font-semibold mb-2">{MONTH_FULL[i]}</div>
+              <div className="grid grid-cols-2 gap-2">
                 {months[mk].map((d) => {
                   const taken = d.isTaken;
                   const avail = getAvailableServicesForDate(d.date);
                   return (
-                    <button
-                      key={d.date}
-                      className={`day ${taken ? "is-disabled" : ""}`}
-                      disabled={taken}
-                      onClick={() => onPickDay(d)}
-                    >
-                      <div className="day-top">
-                        <span className="day-label">{d.day}</span>
-                        <span className="day-date">({fmtLabel(d.date)})</span>
-                      </div>
-                      {d.detail && <div className="day-detail">{d.detail}</div>}
-                      <div className="day-badges">
-                        {avail.length === 0 && <Pill tone="muted">Full</Pill>}
+                    <button key={d.date} disabled={taken} onClick={() => onPickDay(d)} className={`text-left border rounded-lg p-2 ${taken ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}`}>
+                      <div className="text-sm font-medium">{d.day} <span className="text-slate-500">({d.date})</span></div>
+                      {d.detail && <div className="text-[11px] text-slate-500">{d.detail}</div>}
+                      <div className="mt-1 text-[11px]">
+                        {avail.length === 0 && <Pill>Full</Pill>}
                         {avail.includes(SERVICES.RNI) && <Pill>RNI open</Pill>}
                         {avail.includes(SERVICES.COA) && <Pill>COA open</Pill>}
                       </div>
@@ -331,21 +366,19 @@ export default function App() {
         </div>
 
         {active && (
-          <div className="modal">
-            <div className="modal-card">
-              <div className="modal-title">{fmtLabel(active.date)}</div>
-              <div className="row gap">
-                <select className="select" value={svc} onChange={(e) => setSvc(e.target.value)}>
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl p-4 w-full max-w-md">
+              <div className="font-semibold mb-2">{active.date}</div>
+              <div className="flex gap-2 mb-3">
+                <select value={svc} onChange={(e) => setSvc(e.target.value)} className="border rounded px-2 py-1">
                   <option value="">Pick service</option>
-                  {getAvailableServicesForDate(active.date).map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
+                  {getAvailableServicesForDate(active.date).map((s) => (<option key={s} value={s}>{s}</option>))}
                 </select>
               </div>
-              <div className="row right gap">
-                <button className="btn" onClick={() => { setActive(null); setSvc(""); }}>Cancel</button>
-                <button className="btn btn-green" onClick={() => confirm("most")}>Add to Most</button>
-                <button className="btn btn-amber" onClick={() => confirm("least")}>Add to Least</button>
+              <div className="flex gap-2 justify-end">
+                <button className="px-3 py-1 bg-slate-100 rounded" onClick={() => { setActive(null); setSvc(""); }}>Cancel</button>
+                <button className="px-3 py-1 bg-emerald-600 text-white rounded" onClick={() => confirm("most")}>Add to Most</button>
+                <button className="px-3 py-1 bg-amber-600 text-white rounded" onClick={() => confirm("least")}>Add to Least</button>
               </div>
             </div>
           </div>
@@ -354,36 +387,45 @@ export default function App() {
     );
   }
 
+  /**************
+    MODE: QuickAdd
+  **************/
   function QuickAddMode() {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
     const [service, setService] = useState("");
     const [bucket, setBucket] = useState("most");
+
     const saturdays = months[mkey];
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
+
     const onAdd = () => { const res = addTo(bucket, date, service || null); if (!res.ok) alert(res.msg); };
+
     return (
-      <div className="row wrap gap">
-        <select className="select" value={mkey} onChange={(e) => setMkey(e.target.value)}>
+      <div className="flex flex-wrap gap-2 mb-3">
+        <select className="border rounded px-2 py-1" value={mkey} onChange={(e) => setMkey(e.target.value)}>
           {MONTH_KEYS.map((mk, i) => (<option key={mk} value={mk}>{MONTH_FULL[i]}</option>))}
         </select>
-        <select className="select" value={date} onChange={(e) => setDate(e.target.value)}>
+        <select className="border rounded px-2 py-1" value={date} onChange={(e) => setDate(e.target.value)}>
           <option value="">Pick Saturday</option>
-          {saturdays.map((d) => (<option key={d.date} value={d.date} disabled={d.isTaken}>{fmtLabel(d.date)}{d.isTaken ? " (full)" : ""}</option>))}
+          {saturdays.map((d) => (<option key={d.date} value={d.date} disabled={d.isTaken}>{d.date}{d.isTaken ? " (full)" : ""}</option>))}
         </select>
-        <select className="select" value={service} onChange={(e) => setService(e.target.value)}>
+        <select className="border rounded px-2 py-1" value={service} onChange={(e) => setService(e.target.value)}>
           <option value="">Pick service</option>
           {(date ? getAvailableServicesForDate(date) : [SERVICES.RNI, SERVICES.COA]).map((s) => (<option key={s} value={s}>{s}</option>))}
         </select>
-        <select className="select" value={bucket} onChange={(e) => setBucket(e.target.value)}>
+        <select className="border rounded px-2 py-1" value={bucket} onChange={(e) => setBucket(e.target.value)}>
           <option value="most">Most</option>
           <option value="least">Least</option>
         </select>
-        <button className="btn btn-green" onClick={onAdd}>Add</button>
+        <button className="px-3 py-1 bg-emerald-600 text-white rounded" onClick={onAdd}>Add</button>
       </div>
     );
   }
 
+  /**************
+    MODE: RankBoard (click = Most, Shift+Click or toggle = Least)
+  **************/
   function RankBoardMode() {
     const [toLeast, setToLeast] = useState(false);
     const handleClick = (date, e) => {
@@ -395,32 +437,24 @@ export default function App() {
     };
     return (
       <div>
-        <div className="row between">
-          <div className="muted">Click → Most; Shift+Click/toggle → Least.</div>
-          <label className="row gap"><input type="checkbox" checked={toLeast} onChange={(e) => setToLeast(e.target.checked)} /> Send to Least</label>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-slate-600">Click → Most; Shift+Click/toggle → Least. Badges show availability; invalid clicks blocked.</p>
+          <label className="text-sm flex items-center gap-2"><input type="checkbox" checked={toLeast} onChange={(e) => setToLeast(e.target.checked)} />Send clicks to Least</label>
         </div>
-        <div className="months">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {MONTH_KEYS.map((mk, i) => (
-            <div key={mk} className="month">
-              <div className="month-title">{MONTH_FULL[i]}</div>
-              <div className="days">
+            <div key={mk} className="rounded-xl border p-3">
+              <div className="font-semibold mb-2">{MONTH_FULL[i]}</div>
+              <div className="grid grid-cols-2 gap-2">
                 {months[mk].map((d) => {
                   const taken = d.isTaken;
                   const avail = getAvailableServicesForDate(d.date);
                   return (
-                    <button
-                      key={d.date}
-                      disabled={taken || avail.length === 0}
-                      onClick={(e) => handleClick(d.date, e)}
-                      className={`day ${taken || avail.length === 0 ? "is-disabled" : ""}`}
-                    >
-                      <div className="day-top">
-                        <span className="day-label">{d.day}</span>
-                        <span className="day-date">({fmtLabel(d.date)})</span>
-                      </div>
-                      {d.detail && <div className="day-detail">{d.detail}</div>}
-                      <div className="day-badges">
-                        {avail.length === 0 && <Pill tone="muted">Full</Pill>}
+                    <button key={d.date} disabled={taken || avail.length === 0} onClick={(e) => handleClick(d.date, e)} className={`text-left border rounded-lg p-2 ${taken || avail.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:bg-slate-50"}`}>
+                      <div className="text-sm font-medium">{d.day} <span className="text-slate-500">({d.date})</span></div>
+                      {d.detail && <div className="text-[11px] text-slate-500">{d.detail}</div>}
+                      <div className="mt-1 text-[11px]">
+                        {avail.length === 0 && <Pill>Full</Pill>}
                         {avail.includes(SERVICES.RNI) && <Pill>RNI</Pill>}
                         {avail.includes(SERVICES.COA) && <Pill>COA</Pill>}
                       </div>
@@ -435,70 +469,53 @@ export default function App() {
     );
   }
 
+  /**************
+    MODE: DragBuckets (basic HTML5 drag/drop)
+  **************/
   function DragBucketsMode() {
-    const [drag, setDrag] = useState(null);
+    const [drag, setDrag] = useState(null); // {date}
     const chips = useMemo(() => {
       const chosenDates = new Set([...most, ...least].map(x => x.date));
-      return MONTH_KEYS.map((mk, i) => ({
-        mkey: mk, label: MONTH_FULL[i],
-        items: months[mk].filter(d => !d.isTaken && !chosenDates.has(d.date)).map(d => ({ date: d.date }))
-      }));
+      return MONTH_KEYS.map((mk, i) => ({ mkey: mk, label: MONTH_FULL[i], items: months[mk].filter(d => !d.isTaken && !chosenDates.has(d.date)).map(d => ({ date: d.date })) }));
     }, [most, least]);
     const onDropTo = (bucket) => {
-      if (!drag) return;
-      const avail = getAvailableServicesForDate(drag.date);
-      const service = avail.length === 1 ? avail[0] : null;
-      const res = addTo(bucket, drag.date, service);
-      if (!res.ok) alert(res.msg);
-      setDrag(null);
+      if (!drag) return; const avail = getAvailableServicesForDate(drag.date); const service = avail.length === 1 ? avail[0] : null; const res = addTo(bucket, drag.date, service); if (!res.ok) alert(res.msg); setDrag(null);
     };
     return (
-      <div className="drag-grid">
+      <div className="grid lg:grid-cols-[1fr_1fr] gap-3">
         <div>
-          <div className="muted">Drag from Available into Most/Least. Removing/moving re-assigns ranks 1…N.</div>
-          {chips.map(group => (
-            <div key={group.mkey} className="chip-group">
-              <div className="chip-title">{group.label}</div>
-              <div className="chip-row">
-                {group.items.map(it => (
-                  <div
-                    key={it.date}
-                    draggable
-                    onDragStart={() => setDrag({ date: it.date })}
-                    className="chip"
-                  >{fmtLabel(it.date)}</div>
-                ))}
+          <div className="space-y-3">
+            {chips.map(group => (
+              <div key={group.mkey}>
+                <div className="font-semibold mb-1">{group.label}</div>
+                <div className="flex gap-2 overflow-x-auto py-1">
+                  {group.items.map(it => (
+                    <div key={it.date} draggable onDragStart={() => setDrag({ date: it.date })} className="shrink-0 px-3 py-1 rounded-full border bg-white cursor-grab">{it.date}</div>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-        <div className="buckets">
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => onDropTo("most")}
-            className="bucket"
-          >
-            <div className="bucket-title">Most</div>
-            <ol className="bucket-list">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div onDragOver={(e) => e.preventDefault()} onDrop={() => onDropTo("most")} className="rounded-xl border bg-slate-50 p-3 min-h-[160px]">
+            <div className="font-semibold mb-2">Most</div>
+            <ol className="space-y-1">
               {compressRanks(most).map(x => (
-                <li key={`${x.date}-${x.service}`} className="bucket-item">
-                  <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                  <button className="btn-link" onClick={() => removeFrom("most", x.date, x.service)}>remove</button>
+                <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+                  <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+                  <button className="text-xs text-rose-600" onClick={() => removeFrom("most", x.date, x.service)}>remove</button>
                 </li>
               ))}
             </ol>
           </div>
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => onDropTo("least")}
-            className="bucket"
-          >
-            <div className="bucket-title">Least</div>
-            <ol className="bucket-list">
+          <div onDragOver={(e) => e.preventDefault()} onDrop={() => onDropTo("least")} className="rounded-xl border bg-slate-50 p-3 min-h-[160px]">
+            <div className="font-semibold mb-2">Least</div>
+            <ol className="space-y-1">
               {compressRanks(least).map(x => (
-                <li key={`${x.date}-${x.service}`} className="bucket-item">
-                  <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                  <button className="btn-link" onClick={() => removeFrom("least", x.date, x.service)}>remove</button>
+                <li key={`${x.date}-${x.service}`} className="flex items-center justify-between">
+                  <span className="text-sm">#{x.rank} — {x.date} ({x.service})</span>
+                  <button className="text-xs text-rose-600" onClick={() => removeFrom("least", x.date, x.service)}>remove</button>
                 </li>
               ))}
             </ol>
@@ -508,94 +525,66 @@ export default function App() {
     );
   }
 
+  /**************
+    TOP BAR + LAYOUT (no wrapping; no CSV preview; single row)
+  **************/
   const topBar = (
-    <div className="topbar">
-      <div className="topbar-inner">
-        <select className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
+    <div className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b">
+      <div className="max-w-6xl mx-auto px-3 py-2 flex items-center gap-2 flex-nowrap whitespace-nowrap overflow-x-auto">
+        <select className="border rounded px-2 py-1" value={mode} onChange={(e) => setMode(e.target.value)}>
           <option value={MODES.CAL}>Calendar</option>
           <option value={MODES.QA}>QuickAdd</option>
           <option value={MODES.RB}>RankBoard</option>
           <option value={MODES.DB}>DragBuckets</option>
         </select>
-        <div className="spacer" />
-        <span className="badge">{firebaseConfig.projectId}</span>
-        <button className="btn" onClick={submit}>Submit</button>
+        <span className="ml-auto text-[11px] px-2 py-1 rounded-full border bg-slate-50">{firebaseConfig.projectId}</span>
+        <button className="px-3 py-1 rounded bg-emerald-600 text-white" onClick={submit}>Submit</button>
       </div>
     </div>
   );
 
   return (
-    <div className="page">
-      <div className="band" />
-      <div className="container">
-        {topBar}
-        <div className="content">
-          <div className="main">
-            <Section title={mode}>
-              {!selected ? (
-                <div className="gate">
-                  <div className="id-row">
-                    <div className="id-label">Who’s filling preferences?</div>
-                    <select className="id-select" value={me} onChange={(e) => setMe(e.target.value)}>
-                      <option value="">Select your name</option>
-                      {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {mode === MODES.CAL && <CalendarMode />}
-                  {mode === MODES.QA  && <QuickAddMode />}
-                  {mode === MODES.RB  && <RankBoardMode />}
-                  {mode === MODES.DB  && <DragBucketsMode />}
-                </>
-              )}
-            </Section>
-          </div>
-          <aside className="side">
-            <Section title="Live Preview" right={<button className="btn-link" onClick={clearAll}>Clear all</button>}>
-              <div className="preview">
-                <div>
-                  <div className="preview-title">Most preferred</div>
-                  <ol className="preview-list">
-                    {compressRanks(most).map((x) => (
-                      <li key={`${x.date}-${x.service}`} className="preview-item">
-                        <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                        <button className="btn-link" onClick={() => removeFrom("most", x.date, x.service)}>remove</button>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-                <div>
-                  <div className="preview-title">Least preferred</div>
-                  <ol className="preview-list">
-                    {compressRanks(least).map((x) => (
-                      <li key={`${x.date}-${x.service}`} className="preview-item">
-                        <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                        <button className="btn-link" onClick={() => removeFrom("least", x.date, x.service)}>remove</button>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              </div>
-              <div className="helper">
-                Invariants: (1) Same date cannot be in both Most and Least. (2) Within a list, RNI/COA are mutually exclusive. (3) Ranks always compress to 1…N.
-              </div>
-            </Section>
-
-            <Section title="Who">
-              <div className="id-row">
-                <select className="id-select" value={me} onChange={(e) => setMe(e.target.value)}>
-                  <option value="">Select</option>
+    <div className="min-h-screen bg-slate-100">
+      {topBar}
+      <div className="max-w-6xl mx-auto px-3 py-4 grid lg:grid-cols-[2fr_1fr] gap-4">
+        <div>
+          <Section title={mode}>
+            {!selected ? (
+              <div className="max-w-xl mx-auto p-3">
+                <p className="text-sm text-slate-600 mb-2">Pick your name to start.</p>
+                <select className="border rounded px-2 py-1 w-full" value={me} onChange={(e) => setMe(e.target.value)}>
+                  <option value="">Select your name</option>
                   {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
                 </select>
-                {selected && <span className="muted">{selected.email}</span>}
               </div>
-            </Section>
-          </aside>
+            ) : (
+              <>
+                {mode === MODES.CAL && <CalendarMode />}
+                {mode === MODES.QA  && <QuickAddMode />}
+                {mode === MODES.RB  && <RankBoardMode />}
+                {mode === MODES.DB  && <DragBucketsMode />}
+              </>
+            )}
+          </Section>
+        </div>
+        <div>
+          <Section title="Live Preview" right={<button className="text-xs" onClick={clearAll}>Clear all</button>}>
+            {preview}
+            <div className="mt-3 text-[11px] text-slate-500">
+              Hard invariants across all modes: (1) Same date cannot be in both Most and Least. (2) Within a list, RNI/COA are mutually exclusive per weekend. (3) Ranks always compress to 1…N.
+            </div>
+          </Section>
+          <Section title="Who">
+            <div className="flex items-center gap-2">
+              <select className="border rounded px-2 py-1" value={me} onChange={(e) => setMe(e.target.value)}>
+                <option value="">Select</option>
+                {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
+              </select>
+              {selected && <span className="text-sm text-slate-600">{selected.email}</span>}
+            </div>
+          </Section>
         </div>
       </div>
-      <div className="band" />
     </div>
   );
 }
