@@ -79,7 +79,7 @@ const ATTENDING_CODES = {
   "vvalcarceluaces@uabmc.edu": "UAB26-A4N8GY",
 };
 
-/* ====== NEW: limits table used for the short notice after login ====== */
+/* ====== limits for the short notice after login ====== */
 const ATTENDING_LIMITS = {
   Ambal:     { requested: 6,  claimed: 4, left: 2 },
   Schuyler:  { requested: 3,  claimed: 2, left: 1 },
@@ -328,7 +328,7 @@ export default function App() {
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode]   = useState("");
   const [gateErr, setGateErr]     = useState("");
-  const [showLimitsNotice, setShowLimitsNotice] = useState(false); // NEW
+  const [showLimitsNotice, setShowLimitsNotice] = useState(false); // notice after login
 
   const selected = useMemo(() => ATTENDINGS.find(a => a.name === me) || null, [me]);
   const isAdmin = useMemo(() => {
@@ -352,6 +352,8 @@ export default function App() {
   const dragIndex = useRef(null);
   const onDragStartItem = (i) => (e) => {
     dragIndex.current = i;
+    // IMPORTANT: Some browsers require some data to be set for drops to register.
+    e.dataTransfer.setData("text/plain", String(i));
     e.dataTransfer.effectAllowed = "move";
   };
   const onDragOverItem = (i) => (e) => {
@@ -367,8 +369,9 @@ export default function App() {
     }
     dragIndex.current = null;
   };
+  const onDragEndItem = () => { dragIndex.current = null; };
 
-  // CSV download (unchanged)
+  // CSV download
   const downloadCSV = () => {
     if (!selected) { alert("Verify your name/code first."); return; }
     const rows = compressRanks(rankings).map(r => ({
@@ -389,7 +392,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Submit (unchanged prompt flow)
+  // Submit (download-and-verify prompt)
   const submit = async () => {
     if (!selected) { alert("Log in with your code first."); return; }
     const proceed = window.confirm(
@@ -478,7 +481,7 @@ export default function App() {
   function QuickAddMode() {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
-    const [service, setService] = useState("");
+    the const [service, setService] = useState("");
     const saturdays = months[mkey];
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
     const onAdd = () => add(date, service || null);
@@ -605,6 +608,7 @@ export default function App() {
                 onDragStart={onDragStartItem(idx)}
                 onDragOver={onDragOverItem(idx)}
                 onDrop={onDropItem(idx)}
+                onDragEnd={onDragEndItem}
                 style={{
                   display:"flex", alignItems:"center", gap: 8, padding:"8px 6px",
                   border:"1px solid #e5e7eb", borderRadius: 10, marginBottom: 6, background:"#fff"
@@ -655,7 +659,7 @@ export default function App() {
             const ok = code && gateCode && gateCode.toUpperCase() === code.toUpperCase();
             if (!ok) { setGateErr("Invalid code or attendee."); return; }
             const att = ATTENDINGS.find(a => a.email === gateEmail);
-            setGateErr(""); setMe(att.name); setShowLimitsNotice(true); // show limits after login
+            setGateErr(""); setMe(att.name); setShowLimitsNotice(true);
           }}
         >
           Verify & Continue
@@ -665,32 +669,55 @@ export default function App() {
     </div>
   );
 
-  // ===== NEW: Limits notice (requested / chosen / left + chosen shifts) =====
+  // ===== Limits notice: ATTENDING_LIMITS numbers + assigned shifts from months + current picks =====
   const LimitsNotice = () => {
     if (!me || !showLimitsNotice) return null;
-    const limits = ATTENDING_LIMITS[me];
-    const requested = limits?.requested ?? 0;
-    const chosen = compressRanks(rankings).length;
-    const left = Math.max(requested - chosen, 0);
+
+    // 1) Numbers from ATTENDING_LIMITS (as requested)
+    const limits = ATTENDING_LIMITS[me] || { requested: 0, claimed: 0, left: 0 };
+    const { requested, claimed, left } = limits;
+
+    // 2) Shifts already assigned to this attending (from months)
+    const assigned = [];
+    for (const mk of MONTH_KEYS) {
+      for (const d of months[mk]) {
+        if (d.rni === me) assigned.push({ date: d.date, service: "RNI" });
+        if (d.coa === me) assigned.push({ date: d.date, service: "COA" });
+      }
+    }
+
+    // 3) Current picks this session (rankings)
+    const picks = compressRanks(rankings);
+
     return (
       <div style={{
         border:"1px solid #e5e7eb", background:"#fffbe6",
         padding:12, borderRadius:10, marginBottom:12
       }}>
         <div style={{fontWeight:700, marginBottom:6}}>Targets for {me}</div>
-        <div style={{fontSize:14, marginBottom:6}}>
-          Requested: <b>{requested}</b> &nbsp;|&nbsp; Chosen: <b>{chosen}</b> &nbsp;|&nbsp; Left: <b>{left}</b>
+        <div style={{fontSize:14, marginBottom:4}}>
+          Requested: <b>{requested}</b> &nbsp;|&nbsp; Claimed: <b>{claimed}</b> &nbsp;|&nbsp; Left: <b>{left}</b>
         </div>
-        <div style={{fontSize:13, color:"#475569", marginBottom:8}}>
-          Your current picks:
+
+        <div style={{fontSize:13, color:"#475569", marginTop:8}}>
+          Already assigned (calendar):
           <ul style={{margin:"6px 0 0 18px"}}>
-            {compressRanks(rankings).map(r => (
-              <li key={`${r.date}-${r.service}`}>{fmtLabel(r.date)} ({r.service}) — rank #{r.rank}</li>
-            ))}
-            {compressRanks(rankings).length === 0 && <li>None yet.</li>}
+            {assigned.length > 0 ? assigned.map(a => (
+              <li key={`${a.date}-${a.service}`}>{fmtLabel(a.date)} ({a.service})</li>
+            )) : <li>None recorded.</li>}
           </ul>
         </div>
-        <button className="btn btn-green" onClick={()=> setShowLimitsNotice(false)}>OK</button>
+
+        <div style={{fontSize:13, color:"#475569", marginTop:10}}>
+          Your current picks (this session):
+          <ul style={{margin:"6px 0 0 18px"}}>
+            {picks.length > 0 ? picks.map(p => (
+              <li key={`${p.date}-${p.service}`}>{fmtLabel(p.date)} ({p.service}) — rank #{p.rank}</li>
+            )) : <li>None yet.</li>}
+          </ul>
+        </div>
+
+        <button className="btn btn-green" style={{marginTop:10}} onClick={()=> setShowLimitsNotice(false)}>OK</button>
       </div>
     );
   };
@@ -730,7 +757,7 @@ export default function App() {
                   loginPanel
                 ) : (
                   <>
-                    <LimitsNotice /> {/* NEW short, dismissible notice; everything else stays the same */}
+                    <LimitsNotice />
                     {mode === MODES.CAL && <CalendarMode/>}
                     {mode === MODES.QA  && <QuickAddMode/>}
                     {mode === MODES.RB  && <RankBoardMode/>}
@@ -758,6 +785,7 @@ export default function App() {
                       onDragStart={onDragStartItem(idx)}
                       onDragOver={onDragOverItem(idx)}
                       onDrop={onDropItem(idx)}
+                      onDragEnd={onDragEndItem}
                       style={{
                         display:"flex", alignItems:"center", gap:8, padding:"8px 6px",
                         border:"1px solid #e5e7eb", borderRadius:10, marginBottom:6, background:"#fff"
