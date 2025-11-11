@@ -203,9 +203,7 @@ function reducer(state, action) {
     case "add": {
       const { date, service } = action;
       if (!service) return state;
-      // Block if any item already uses this date (enforces not both services on same weekend)
-      if (state.rankings.some(r => r.date === date)) return state;
-      // Block duplicate
+      if (state.rankings.some(r => r.date === date)) return state; // block both services on same weekend
       if (state.rankings.some(r => r.date === date && r.service === service)) return state;
       const next = [...state.rankings, { date, service, rank: (state.rankings.length + 1) }];
       return { rankings: compressRanks(next) };
@@ -217,10 +215,11 @@ function reducer(state, action) {
     case "reorder": {
       const { fromIndex, toIndex } = action;
       if (fromIndex === toIndex) return state;
-      const next = [...state.rankings];
-      const [moved] = next.splice(fromIndex, 1);
-      next.splice(toIndex, 0, moved);
-      return { rankings: compressRanks(next) };
+      const arr = [...state.rankings];
+      if (fromIndex < 0 || fromIndex >= arr.length || toIndex < 0 || toIndex >= arr.length) return state;
+      const [moved] = arr.splice(fromIndex, 1);
+      arr.splice(toIndex, 0, moved);
+      return { rankings: compressRanks(arr) };
     }
     case "clear":
       return initialState;
@@ -237,19 +236,13 @@ const Pill = ({children}) => <span className="pill">{children}</span>;
 const DragHandle = () => (
   <span
     style={{
-      width: 18,
-      height: 22,
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 8,
-      cursor: "grab",
-      color: "#94a3b8",
-      userSelect: "none"
+      width: 18, height: 22, display:"inline-flex", alignItems:"center",
+      justifyContent:"center", marginRight: 8, cursor:"grab", color:"#94a3b8",
+      userSelect:"none"
     }}
     aria-label="drag"
+    title="Drag to reorder"
   >
-    {/* “two dots above and two below” look */}
     ⋮⋮
   </span>
 );
@@ -270,18 +263,14 @@ function InlineServicePopover({ x, y, date, onPick, onClose }) {
     <div
       ref={ref}
       style={{
-        position: "fixed",
-        top: y + 8,
-        left: x + 8,
-        zIndex: 9999,
-        background: "#fff",
-        border: "1px solid #e5e7eb",
-        borderRadius: 10,
-        padding: 8,
-        boxShadow: "0 10px 30px rgba(0,0,0,0.12)"
+        position:"fixed", top: y + 8, left: x + 8, zIndex: 9999,
+        background:"#fff", border:"1px solid #e5e7eb", borderRadius: 10,
+        padding: 8, boxShadow:"0 10px 30px rgba(0,0,0,0.12)"
       }}
     >
-      <div style={{fontWeight:700, fontSize:12, marginBottom:6}}>{fmtLabel(date)} — Pick service</div>
+      <div style={{fontWeight:700, fontSize:12, marginBottom:6}}>
+        {fmtLabel(date)} — Pick service
+      </div>
       <div style={{display:"flex", gap:8}}>
         {avail.includes(SERVICES.RNI) && (
           <button className="btn btn-green" onClick={() => onPick(SERVICES.RNI)}>RNI</button>
@@ -336,13 +325,14 @@ export default function App() {
   const remove = useCallback((date, service) => dispatch({ type: "remove", date, service }), []);
   const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
 
-  // Drag reorder
+  // ---- Drag & drop reorder (ONLY for rankings list) ----
   const dragIndex = useRef(null);
   const onDragStartItem = (i) => (e) => {
     dragIndex.current = i;
     e.dataTransfer.effectAllowed = "move";
   };
   const onDragOverItem = (i) => (e) => {
+    // Needed so drop fires in most browsers
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
   };
@@ -350,11 +340,13 @@ export default function App() {
     e.preventDefault();
     const from = dragIndex.current;
     const to = i;
-    if (from != null) dispatch({ type: "reorder", fromIndex: from, toIndex: to });
+    if (from != null && to != null) {
+      dispatch({ type: "reorder", fromIndex: from, toIndex: to });
+    }
     dragIndex.current = null;
   };
 
-  // CSV download
+  // CSV download (unchanged)
   const downloadCSV = () => {
     if (!selected) { alert("Verify your name/code first."); return; }
     const rows = compressRanks(rankings).map(r => ({
@@ -375,7 +367,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Submit (ask to download + verify first)
+  // Submit (unchanged prompt flow)
   const submit = async () => {
     if (!selected) { alert("Log in with your code first."); return; }
     const proceed = window.confirm(
@@ -403,12 +395,12 @@ export default function App() {
     } catch (e) { console.error(e); alert("Failed to save."); }
   };
 
-  /* ---------- shared bits ---------- */
+  /* ---------- shared bits (unchanged) ---------- */
   function CollapsibleMonth({ title, children, defaultCollapsed = true }) {
     const [open, setOpen] = useState(!defaultCollapsed);
     return (
       <div className="month">
-        <button className="month-toggle" onClick={() => setOpen(o => !o)}>
+        <button className="month-toggle" onClick={()=> setOpen(o=> !o)}>
           <span className="chev">{open ? "▾" : "▸"}</span>
           <span className="month-title">{title}</span>
         </button>
@@ -418,7 +410,7 @@ export default function App() {
   }
   const peerKey = (d) => `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`;
 
-  /* ---------- Modes with one-click service buttons ---------- */
+  /* ---------- Modes with one-click service buttons (unchanged) ---------- */
   function CalendarMode() {
     return (
       <div className="months">
@@ -439,12 +431,12 @@ export default function App() {
                     {d.detail && <div className="day-detail">{d.detail}</div>}
                     <div className="svc-actions">
                       {avail.includes(SERVICES.RNI) && (
-                        <button className="btn btn-svc" disabled={block} onClick={() => add(d.date, SERVICES.RNI)}>
+                        <button className="btn btn-svc" disabled={block} onClick={()=> add(d.date, SERVICES.RNI)}>
                           RNI → Rank
                         </button>
                       )}
                       {avail.includes(SERVICES.COA) && (
-                        <button className="btn btn-svc" disabled={block} onClick={() => add(d.date, SERVICES.COA)}>
+                        <button className="btn btn-svc" disabled={block} onClick={()=> add(d.date, SERVICES.COA)}>
                           COA → Rank
                         </button>
                       )}
@@ -470,10 +462,10 @@ export default function App() {
     const onAdd = () => add(date, service || null);
     return (
       <div className="row wrap gap">
-        <select className="select" value={mkey} onChange={(e) => setMkey(e.target.value)}>
-          {MONTH_KEYS.map((mk, i) => (<option key={mk} value={mk}>{MONTH_FULL[i]}</option>))}
+        <select className="select" value={mkey} onChange={(e)=> setMkey(e.target.value)}>
+          {MONTH_KEYS.map((mk, i)=> (<option key={mk} value={mk}>{MONTH_FULL[i]}</option>))}
         </select>
-        <select className="select" value={date} onChange={(e) => setDate(e.target.value)}>
+        <select className="select" value={date} onChange={(e)=> setDate(e.target.value)}>
           <option value="">Pick Saturday</option>
           {saturdays.map((d) => (
             <option key={d.date} value={d.date} disabled={d.isTaken}>
@@ -481,7 +473,7 @@ export default function App() {
             </option>
           ))}
         </select>
-        <select className="select" value={service} onChange={(e) => setService(e.target.value)}>
+        <select className="select" value={service} onChange={(e)=> setService(e.target.value)}>
           <option value="">Pick service</option>
           {(date ? getAvailableServicesForDate(date) : [SERVICES.RNI, SERVICES.COA]).map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -504,12 +496,12 @@ export default function App() {
           </div>
           <div className="rb-actions">
             {avail.includes(SERVICES.RNI) && (
-              <button className="btn btn-svc" disabled={disabled} onClick={() => add(d.date, SERVICES.RNI)}>RNI → Rank</button>
+              <button className="btn btn-svc" disabled={disabled} onClick={()=> add(d.date, SERVICES.RNI)}>RNI → Rank</button>
             )}
             {avail.includes(SERVICES.COA) && (
-              <button className="btn btn-svc" disabled={disabled} onClick={() => add(d.date, SERVICES.COA)}>COA → Rank</button>
+              <button className="btn btn-svc" disabled={disabled} onClick={()=> add(d.date, SERVICES.COA)}>COA → Rank</button>
             )}
-            {avail.length === 0 && <Pill>Full</Pill>}
+            {avail.length===0 && <Pill>Full</Pill>}
             {rankings.some(r => r.date === d.date) && <Pill>Picked</Pill>}
           </div>
         </div>
@@ -579,7 +571,7 @@ export default function App() {
         {/* Rankings bucket (drop target) */}
         <div
           className="bucket"
-          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+          onDragOver={(e)=> { e.preventDefault(); e.dataTransfer.dropEffect="move"; }}
           onDrop={onDropIntoRankings}
         >
           <div className="bucket-title">Rankings (drag to reorder)</div>
@@ -593,21 +585,15 @@ export default function App() {
                 onDragOver={onDragOverItem(idx)}
                 onDrop={onDropItem(idx)}
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "8px 6px",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 10,
-                  marginBottom: 6,
-                  background: "#fff"
+                  display:"flex", alignItems:"center", gap: 8, padding:"8px 6px",
+                  border:"1px solid #e5e7eb", borderRadius: 10, marginBottom: 6, background:"#fff"
                 }}
                 title="Drag to reorder"
               >
-                <DragHandle />
+                <DragHandle/>
                 <span style={{fontWeight:700, minWidth: 28}}>#{r.rank}</span>
                 <span style={{flex:1}}>{fmtLabel(r.date)} ({r.service})</span>
-                <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
+                <button className="btn-link" onClick={()=> remove(r.date, r.service)}>remove</button>
               </li>
             ))}
           </ol>
@@ -618,8 +604,8 @@ export default function App() {
             x={pop.x}
             y={pop.y}
             date={pop.date}
-            onPick={(svc) => { add(pop.date, svc); setPop(null); }}
-            onClose={() => setPop(null)}
+            onPick={(svc)=> { add(pop.date, svc); setPop(null); }}
+            onClose={()=> setPop(null)}
           />
         )}
       </div>
@@ -631,7 +617,7 @@ export default function App() {
     <div className="login">
       <div className="login-title">Enter your one-time code</div>
       <div className="id-row">
-        <select className="id-select" value={gateEmail} onChange={(e) => setGateEmail(e.target.value)}>
+        <select className="id-select" value={gateEmail} onChange={(e)=> setGateEmail(e.target.value)}>
           <option value="">Select your name</option>
           {ATTENDINGS.map(a => <option key={a.email} value={a.email}>{a.name} — {a.email}</option>)}
         </select>
@@ -639,11 +625,11 @@ export default function App() {
           className="id-select"
           placeholder="Paste code (e.g., UAB26-XXXXXX)"
           value={gateCode}
-          onChange={(e) => setGateCode(e.target.value.trim())}
+          onChange={(e)=> setGateCode(e.target.value.trim())}
         />
         <button
           className="btn btn-green"
-          onClick={() => {
+          onClick={()=> {
             const code = ATTENDING_CODES[gateEmail];
             const ok = code && gateCode && gateCode.toUpperCase() === code.toUpperCase();
             if (!ok) { setGateErr("Invalid code or attendee."); return; }
@@ -660,13 +646,13 @@ export default function App() {
 
   return (
     <div className="page">
-      <div className="band" />
+      <div className="band"/>
       <div className="container">
         <div className="topbar">
           <div className="topbar-inner">
             <strong>UAB/COA Weekend Attending Scheduler 2026</strong>
-            <div className="spacer" />
-            <select className="select" value={mode} onChange={(e) => setMode(e.target.value)}>
+            <div className="spacer"/>
+            <select className="select" value={mode} onChange={(e)=> setMode(e.target.value)}>
               <option value={MODES.CAL}>Calendar</option>
               <option value={MODES.QA}>QuickAdd</option>
               <option value={MODES.RB}>RankBoard</option>
@@ -693,10 +679,10 @@ export default function App() {
                   loginPanel
                 ) : (
                   <>
-                    {mode === MODES.CAL && <CalendarMode />}
-                    {mode === MODES.QA  && <QuickAddMode />}
-                    {mode === MODES.RB  && <RankBoardMode />}
-                    {mode === MODES.DB  && <DragBucketsMode />}
+                    {mode === MODES.CAL && <CalendarMode/>}
+                    {mode === MODES.QA  && <QuickAddMode/>}
+                    {mode === MODES.RB  && <RankBoardMode/>}
+                    {mode === MODES.DB  && <DragBucketsMode/>}
                   </>
                 )}
               </div>
@@ -707,11 +693,13 @@ export default function App() {
             <section className="section">
               <div className="section-head">
                 <h3 className="section-title">Rankings (1 = most preferred)</h3>
-                <div className="section-right"><button className="btn-link" onClick={clearAll}>Clear all</button></div>
+                <div className="section-right">
+                  <button className="btn-link" onClick={clearAll}>Clear all</button>
+                </div>
               </div>
               <div className="section-body">
                 <ol className="preview-list" style={{margin:0, padding:0, listStyle:"none"}}>
-                  {compressRanks(rankings).map((r, idx) => (
+                  {compressRanks(rankings).map((r, idx)=> (
                     <li
                       key={`${r.date}-${r.service}`}
                       draggable
@@ -719,21 +707,15 @@ export default function App() {
                       onDragOver={onDragOverItem(idx)}
                       onDrop={onDropItem(idx)}
                       style={{
-                        display:"flex",
-                        alignItems:"center",
-                        gap:8,
-                        padding:"8px 6px",
-                        border:"1px solid #e5e7eb",
-                        borderRadius:10,
-                        marginBottom:6,
-                        background:"#fff"
+                        display:"flex", alignItems:"center", gap:8, padding:"8px 6px",
+                        border:"1px solid #e5e7eb", borderRadius:10, marginBottom:6, background:"#fff"
                       }}
                       title="Drag to reorder"
                     >
-                      <DragHandle />
+                      <DragHandle/>
                       <span style={{fontWeight:700, minWidth:28}}>#{r.rank}</span>
                       <span style={{flex:1}}>{fmtLabel(r.date)} ({r.service})</span>
-                      <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
+                      <button className="btn-link" onClick={()=> remove(r.date, r.service)}>remove</button>
                     </li>
                   ))}
                 </ol>
@@ -746,7 +728,7 @@ export default function App() {
               </div>
               <div className="section-body">
                 <div className="id-row">
-                  <select className="id-select" value={me} onChange={(e) => setMe(e.target.value)} disabled={!me}>
+                  <select className="id-select" value={me} onChange={(e)=> setMe(e.target.value)} disabled={!me}>
                     {!me && <option value="">(locked after login)</option>}
                     {ATTENDINGS.map(a => <option key={a.email} value={a.name}>{a.name}</option>)}
                   </select>
@@ -757,7 +739,7 @@ export default function App() {
           </aside>
         </div>
       </div>
-      <div className="band" />
+      <div className="band"/>
     </div>
   );
 }
