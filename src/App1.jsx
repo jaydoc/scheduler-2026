@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useReducer, useState, useCallback } from "react";
 import "./App.css";
+// Firebase SDK (v9+ modular)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
@@ -27,7 +28,7 @@ const firebaseConfig = (() => {
   }
   return LOCAL_FALLBACK;
 })();
-const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v15.1";
+const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-v15.0";
 
 /* =========================================================
    CONSTANTS + DATA
@@ -35,7 +36,6 @@ const appId = typeof __app_id !== "undefined" ? __app_id : "attending-scheduler-
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 const MODES = { CAL: "Calendar", QA: "QuickAdd", RB: "RankBoard", DB: "DragBuckets" };
-const ADMIN_EMAIL = "jkandasamy@uabmc.edu";
 
 const ATTENDINGS = [
   { name: "Ambal",    email: "nambalav@uab.edu" },
@@ -60,6 +60,7 @@ const ATTENDINGS = [
 
 /* =========================================================
    TEMPORARY CODE-LOGIN (client-side map) — for quick rollout
+   NOTE: For real security, store these in Firestore or a Cloud Function.
 ========================================================= */
 const ATTENDING_CODES = {
   "nambalav@uab.edu": "UAB26-7KQ2T9",
@@ -83,7 +84,7 @@ const ATTENDING_CODES = {
 };
 
 /* =========================================================
-   CALENDAR (SATURDAYS OF 2026) — source data (same as prior)
+   CALENDAR (SATURDAYS OF 2026) — source data (abbrev.)
 ========================================================= */
 const months = {
   "01": [
@@ -195,7 +196,7 @@ function fmtLabel(dateStr) {
 }
 
 /* =========================================================
-   STATE REDUCER — hard invariants
+   SINGLE SOURCE OF TRUTH — reducer with hard invariants
 ========================================================= */
 const initialState = { most: [], least: [] };
 function enforceInvariants(state) {
@@ -238,7 +239,7 @@ function reducer(state, action) {
 }
 
 /* =========================================================
-   Reusable atoms
+   UI atoms
 ========================================================= */
 function Pill({ children, tone = "default" }) {
   return <span className={`pill pill-${tone}`}>{children}</span>;
@@ -272,18 +273,13 @@ export default function App() {
     return () => unsub();
   }, [auth]);
 
-  const [me, setMe] = useState("");
-  const selected = useMemo(() => ATTENDINGS.find(a => a.name === me) || null, [me]);
-  const isAdmin = useMemo(() => {
-    try {
-      const q = new URLSearchParams(window.location.search);
-      return q.get("admin") === "1" && selected?.email === ADMIN_EMAIL;
-    } catch { return false; }
-  }, [selected]);
-
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [gateErr, setGateErr] = useState("");
+
+  const [me, setMe] = useState("");
+  const [selected, setSelected] = useState(null);
+  useEffect(() => { setSelected(ATTENDINGS.find(a => a.name === me) || null); }, [me]);
 
   const [mode, setMode] = useState(MODES.CAL);
   const [{ most, least }, dispatch] = useReducer(reducer, initialState);
@@ -300,53 +296,32 @@ export default function App() {
 
   const submit = async () => {
     if (!selected) { alert("Log in with your code first."); return; }
-    const payload = { appId, year: YEAR, who: selected.name, email: selected.email, most: compressRanks(most), least: compressRanks(least), ts: serverTimestamp(), isAdmin };
+    const payload = { appId, year: YEAR, who: selected.name, email: selected.email, most: compressRanks(most), least: compressRanks(least), ts: serverTimestamp() };
     try {
       await setDoc(doc(db, "prefs", `${YEAR}-${selected.name}`), payload);
       alert("Saved to Firestore.");
     } catch (e) { console.error(e); alert("Failed to save."); }
   };
 
-  const [svcPick, setSvcPick] = useState(null); // { date, bucket }
-  const [svcChoice, setSvcChoice] = useState("");
-  const closeSvc = () => { setSvcPick(null); setSvcChoice(""); };
-  const confirmSvc = () => {
-    const res = addTo(svcPick.bucket, svcPick.date, svcChoice || null);
-    if (!res.ok) { alert(res.msg); return; }
-    closeSvc();
-  };
-
-  function CollapsibleMonth({ mkey, title, children, defaultCollapsed = true }) {
-    const [open, setOpen] = useState(!defaultCollapsed);
-    return (
-      <div className="month">
-        <button className="month-toggle" onClick={() => setOpen(o => !o)}>
-          <span className="chev">{open ? "▾" : "▸"}</span>
-          <span className="month-title">{title}</span>
-        </button>
-        {open && children}
-      </div>
-    );
-  }
-
   function CalendarMode() {
     const [active, setActive] = useState(null);
     const [svc, setSvc] = useState("");
     const onPickDay = (d) => {
       const avail = getAvailableServicesForDate(d.date);
-      if (avail.length === 1) { const r = addTo("most", d.date, avail[0]); if (!r.ok) alert(r.msg); return; }
+      if (avail.length === 1) { const res = addTo("most", d.date, avail[0]); if (!res.ok) alert(res.msg); return; }
       setActive({ date: d.date });
     };
     const confirm = (bucket) => {
-      const r = addTo(bucket, active.date, svc || null);
-      if (!r.ok) alert(r.msg);
+      const res = addTo(bucket, active.date, svc || null);
+      if (!res.ok) alert(res.msg);
       setActive(null); setSvc("");
     };
     return (
       <div>
         <div className="months">
           {MONTH_KEYS.map((mk, i) => (
-            <CollapsibleMonth key={mk} mkey={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
+            <div key={mk} className="month">
+              <div className="month-title">{MONTH_FULL[i]}</div>
               <div className="days">
                 {months[mk].map((d) => {
                   const taken = d.isTaken;
@@ -372,7 +347,7 @@ export default function App() {
                   );
                 })}
               </div>
-            </CollapsibleMonth>
+            </div>
           ))}
         </div>
 
@@ -392,22 +367,6 @@ export default function App() {
                 <button className="btn" onClick={() => { setActive(null); setSvc(""); }}>Cancel</button>
                 <button className="btn btn-green" onClick={() => confirm("most")}>Add to Most</button>
                 <button className="btn btn-amber" onClick={() => confirm("least")}>Add to Least</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {svcPick && (
-          <div className="modal">
-            <div className="modal-card">
-              <div className="modal-title">{fmtLabel(svcPick.date)}</div>
-              <select className="select" value={svcChoice} onChange={(e) => setSvcChoice(e.target.value)}>
-                <option value="">Pick service</option>
-                {getAvailableServicesForDate(svcPick.date).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <div className="row right gap" style={{marginTop:8}}>
-                <button className="btn" onClick={closeSvc}>Cancel</button>
-                <button className="btn btn-green" onClick={confirmSvc}>Add to {svcPick.bucket === "most" ? "Most" : "Least"}</button>
               </div>
             </div>
           </div>
@@ -451,13 +410,9 @@ export default function App() {
     const handleClick = (date, e) => {
       const bucket = e.shiftKey || toLeast ? "least" : "most";
       const avail = getAvailableServicesForDate(date);
-      if (avail.length === 0) return;
-      if (avail.length === 1) {
-        const res = addTo(bucket, date, avail[0]);
-        if (!res.ok) alert(res.msg);
-        return;
-      }
-      setSvcPick({ date, bucket });
+      const service = avail.length === 1 ? avail[0] : null;
+      const res = addTo(bucket, date, service);
+      if (!res.ok) alert(res.msg);
     };
     return (
       <div>
@@ -467,7 +422,8 @@ export default function App() {
         </div>
         <div className="months">
           {MONTH_KEYS.map((mk, i) => (
-            <CollapsibleMonth key={mk} mkey={mk} title={MONTH_FULL[i]} defaultCollapsed={true}>
+            <div key={mk} className="month">
+              <div className="month-title">{MONTH_FULL[i]}</div>
               <div className="days">
                 {months[mk].map((d) => {
                   const taken = d.isTaken;
@@ -493,7 +449,7 @@ export default function App() {
                   );
                 })}
               </div>
-            </CollapsibleMonth>
+            </div>
           ))}
         </div>
       </div>
@@ -512,13 +468,9 @@ export default function App() {
     const onDropTo = (bucket) => {
       if (!drag) return;
       const avail = getAvailableServicesForDate(drag.date);
-      if (avail.length === 0) return;
-      if (avail.length === 1) {
-        const res = addTo(bucket, drag.date, avail[0]);
-        if (!res.ok) alert(res.msg);
-      } else {
-        setSvcPick({ date: drag.date, bucket });
-      }
+      const service = avail.length === 1 ? avail[0] : null;
+      const res = addTo(bucket, drag.date, service);
+      if (!res.ok) alert(res.msg);
       setDrag(null);
     };
     return (
@@ -579,7 +531,7 @@ export default function App() {
           <option value={MODES.DB}>DragBuckets</option>
         </select>
         <div className="spacer" />
-        <span className="badge">{firebaseConfig.projectId}{isAdmin ? " — ADMIN" : ""}</span>
+        <span className="badge">{firebaseConfig.projectId}</span>
         <button className="btn" onClick={submit}>Submit</button>
       </div>
     </div>
