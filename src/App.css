@@ -1,14 +1,9 @@
-/* ===== Layout ===== */
+/* ===== Layout & Topbar ===== */
 .page { display:flex; min-height:100vh; background:#f3f6fb; }
 .band { flex:1 1 auto; background:linear-gradient(90deg,#f3f6fb,#e9eff7); }
 .container { flex:0 0 auto; width:100%; max-width:1220px; margin:0 auto; background:#fff; box-shadow:0 0 0 1px #e5e7eb inset; }
 .content { display:grid; grid-template-columns: 2fr 1fr; gap:16px; padding:16px; }
 @media (max-width: 900px){ .content{ grid-template-columns:1fr; } }
-
-.main { min-width:0; }
-.side { min-width:0; }
-
-/* ===== Topbar (sticky, single row, no wrap) ===== */
 .topbar { position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.92); backdrop-filter:saturate(120%) blur(6px); border-bottom:1px solid #e5e7eb; }
 .topbar-inner { display:flex; align-items:center; gap:8px; padding:8px 12px; white-space:nowrap; overflow-x:auto; }
 .topbar-inner .spacer { flex:1 1 auto; }
@@ -26,7 +21,6 @@
 .row.wrap { flex-wrap:wrap; }
 .row.gap > * + * { margin-left:8px; }
 .row.between { justify-content:space-between; }
-
 .select, .btn, .btn-link { font-size:14px; }
 .select { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; min-width:180px; background:#fff; }
 .btn { padding:6px 12px; border:1px solid #e5e7eb; border-radius:8px; background:#f8fafc; cursor:pointer; }
@@ -47,7 +41,6 @@
 .months { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; }
 @media (max-width: 1000px){ .months{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
 @media (max-width: 600px){ .months{ grid-template-columns: 1fr; } }
-
 .month { border:1px solid #e5e7eb; border-radius:12px; padding:12px; }
 .month-title { font-weight:700; margin-bottom:8px; }
 .days { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:8px; }
@@ -65,7 +58,7 @@
 .modal-card { background:#fff; border-radius:12px; padding:16px; width:100%; max-width:420px; box-shadow:0 10px 30px rgba(0,0,0,.12); }
 .modal-title { font-weight:700; margin-bottom:8px; }
 
-/* ===== Buckets & Preview ===== */
+/* ===== Drag & Buckets ===== */
 .drag-grid { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
 @media (max-width: 900px){ .drag-grid{ grid-template-columns:1fr; } }
 .chip-group { margin-bottom:10px; }
@@ -80,6 +73,7 @@
 .bucket-item { display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #e5e7eb; }
 .bucket-item:last-child { border-bottom:none; }
 
+/* ===== Preview & Identity ===== */
 .preview { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
 .preview-title { font-weight:700; margin-bottom:4px; }
 .preview-list { list-style:none; padding:0; margin:0; }
@@ -87,10 +81,13 @@
 .preview-item:last-child { border-bottom:none; }
 .helper { margin-top:8px; color:#64748b; font-size:11px; }
 
-/* ===== Identity (gate) ===== */
 .id-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
 .id-label { font-size:14px; font-weight:700; }
 .id-select { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; min-width:220px; font-size:14px; }
+
+.login { padding:8px; }
+.login-title { font-weight:700; margin-bottom:8px; }
+.error { color:#b91c1c; font-size:13px; margin-top:6px; }
 
 /* ===== Utilities ===== */
 .right { justify-content:flex-end; }
