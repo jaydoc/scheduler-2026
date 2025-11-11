@@ -76,15 +76,18 @@
 .chip-row { display:flex; gap:8px; overflow-x:auto; padding:4px 0; }
 .chip { padding:6px 10px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; cursor:grab; white-space:nowrap; }
 
-.buckets { display:grid; grid-template-columns: 1fr 1fr; gap:24px; } /* extra space between Most/Least */
-.bucket { background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px; min-height:160px; }
+.bucket { background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:12px; min-height:180px; }
 .bucket-title { font-weight:700; margin-bottom:6px; }
 .bucket-list { list-style:none; padding:0; margin:0; }
 .bucket-item { display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #e5e7eb; }
 .bucket-item:last-child { border-bottom:none; }
 
+/* inline service chooser */
+.inline-pick { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:8px; margin-bottom:8px; }
+.inline-pick-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
 /* ===== Preview & Identity ===== */
-.preview { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+.preview { display:block; }
 .preview-title { font-weight:700; margin-bottom:4px; }
 .preview-list { list-style:none; padding:0; margin:0; }
 .preview-item { display:flex; align-items:center; justify-content:space-between; padding:4px 0; border-bottom:1px dashed #e5e7eb; }
