@@ -381,7 +381,9 @@ const onDropItem = (i) => (e) => {
         if (d.coa === me) out.push({ date: d.date, service: "COA" });
       }
     }
-    return out.sort((a, b) => (a.date < b.date ? -1 : 1)); }, [me]); Limits summary const limitsSummary=useMemo(()=> { if (!me) return null; const lim=ATTENDING_LIMITS[me]; if (!lim) return null; return { requested: lim.requested, claimed: lim.claimed, left: lim.left, chosenNow: prefs.length, }; }, [me, prefs.length]); CSV download const downloadCSV=()=> {
+    return out.sort((a, b) => (a.date < b.date ? -1 : 1)); }, [me]); Limits summary 
+	const limitsSummary=useMemo(()=> { if (!me) return null; 
+	const lim=ATTENDING_LIMITS[me]; if (!lim) return null; return { requested: lim.requested, claimed: lim.claimed, left: lim.left, chosenNow: prefs.length, }; }, [me, prefs.length]); CSV download const downloadCSV=()=> {
     if (!selectedAtt) {
       alert("Please verify your name/code first.");
       return;
