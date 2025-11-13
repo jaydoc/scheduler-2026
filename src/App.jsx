@@ -7,23 +7,13 @@ import React, {
   useState,
 } from "react";
 import "./App.css";
+import { initializeApp } from "firebase/app";
+import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, setDoc, serverTimestamp, getDoc } from "firebase/firestore";
 
 /* =========================================================
-   FIREBASE (fallbacks kept)
+   FIREBASE CONFIG (keeps your original fallbacks)
 ========================================================= */
-import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  signInAnonymously,
-  onAuthStateChanged,
-} from "firebase/auth";
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  serverTimestamp,
-} from "firebase/firestore";
-
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
   authDomain: "attending-schedule-2026.firebaseapp.com",
@@ -33,9 +23,9 @@ const LOCAL_FALLBACK = {
   appId: "1:777996986623:web:0a8697cccb63149d9744ca",
   measurementId: "G-TJXCM9P7W2",
 };
-
 const firebaseConfig = (() => {
   try {
+    // allow injected compile-time/global config if present
     if (typeof __firebase_config !== "undefined" && __firebase_config) {
       return JSON.parse(__firebase_config);
     }
@@ -45,37 +35,38 @@ const firebaseConfig = (() => {
   }
   return LOCAL_FALLBACK;
 })();
-
 const appId =
   typeof __app_id !== "undefined"
     ? __app_id
-    : "attending-scheduler-v-single-rank-1.1";
-
-/* =========================================================
-   CONSTANTS / DATA
-========================================================= */
+    : "attending-scheduler-v-single-rank-1.0";
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 
+// Admin locked to you
+const ADMIN_EMAIL = "jkandasamy@uabmc.edu";
+
+/* =========================================================
+   ATTENDINGS + LIMITS
+========================================================= */
 const ATTENDINGS = [
-  { name: "Ambal", email: "nambalav@uab.edu" },
-  { name: "Arora", email: "nitinarora@uabmc.edu" },
-  { name: "Bhatia", email: "ksbhatia@uabmc.edu" },
-  { name: "Boone", email: "boone@uabmc.edu" },
-  { name: "Carlo", email: "wcarlo@uabmc.edu" },
-  { name: "Jain", email: "viraljain@uabmc.edu" },
-  { name: "Kandasamy", email: "jkandasamy@uabmc.edu" },
-  { name: "Kane", email: "akane@uabmc.edu" },
-  { name: "Mackay", email: "mackay@uabmc.edu" },
+  { name: "Ambal",    email: "nambalav@uab.edu" },
+  { name: "Arora",    email: "nitinarora@uabmc.edu" },
+  { name: "Bhatia",   email: "ksbhatia@uabmc.edu" },
+  { name: "Boone",    email: "boone@uabmc.edu" },
+  { name: "Carlo",    email: "wcarlo@uabmc.edu" },
+  { name: "Jain",     email: "viraljain@uabmc.edu" },
+  { name: "Kandasamy",email: "jkandasamy@uabmc.edu" },
+  { name: "Kane",     email: "akane@uabmc.edu" },
+  { name: "Mackay",   email: "mackay@uabmc.edu" },
   { name: "Schuyler", email: "aschuyler@uabmc.edu" },
-  { name: "Shukla", email: "vshukla@uabmc.edu" },
-  { name: "Sims", email: "bsims@uabmc.edu" },
-  { name: "Travers", email: "cptravers@uabmc.edu" },
-  { name: "Willis", email: "kentwillis@uabmc.edu" },
-  { name: "Winter", email: "lwinter@uabmc.edu" },
-  { name: "Salas", email: "asalas@uabmc.edu" },
-  { name: "Lal", email: "clal@uabmc.edu" },
-  { name: "Vivian", email: "vvalcarceluaces@uabmc.edu" },
+  { name: "Shukla",   email: "vshukla@uabmc.edu" },
+  { name: "Sims",     email: "bsims@uabmc.edu" },
+  { name: "Travers",  email: "cptravers@uabmc.edu" },
+  { name: "Willis",   email: "kentwillis@uabmc.edu" },
+  { name: "Winter",   email: "lwinter@uabmc.edu" },
+  { name: "Salas",    email: "asalas@uabmc.edu" },
+  { name: "Lal",      email: "clal@uabmc.edu" },
+  { name: "Vivian",   email: "vvalcarceluaces@uabmc.edu" },
 ];
 
 /* One-time login codes */
@@ -100,124 +91,124 @@ const ATTENDING_CODES = {
   "vvalcarceluaces@uabmc.edu": "UAB26-A4N8GY",
 };
 
-/* Per-attending targets + current counts */
+/* Optional display of target counts */
 const ATTENDING_LIMITS = {
-  Ambal: { requested: 6, claimed: 4, left: 2 },
-  Schuyler: { requested: 3, claimed: 2, left: 1 },
-  Mackay: { requested: 5, claimed: 1, left: 4 },
-  Kane: { requested: 1, claimed: 1, left: 0 },
-  Salas: { requested: 3, claimed: 0, left: 3 },
-  Sims: { requested: 8, claimed: 4, left: 4 },
-  Travers: { requested: 7, claimed: 4, left: 3 },
+  Ambal:     { requested: 6,  claimed: 4, left: 2 },
+  Schuyler:  { requested: 3,  claimed: 2, left: 1 },
+  Mackay:    { requested: 5,  claimed: 1, left: 4 },
+  Kane:      { requested: 1,  claimed: 1, left: 0 },
+  Salas:     { requested: 3,  claimed: 0, left: 3 },
+  Sims:      { requested: 8,  claimed: 4, left: 4 },
+  Travers:   { requested: 7,  claimed: 4, left: 3 },
   Kandasamy: { requested: 10, claimed: 6, left: 4 },
-  Willis: { requested: 9, claimed: 4, left: 5 },
-  Bhatia: { requested: 6, claimed: 5, left: 1 },
-  Winter: { requested: 5, claimed: 3, left: 2 },
-  Boone: { requested: 9, claimed: 6, left: 3 },
-  Arora: { requested: 9, claimed: 7, left: 2 },
-  Jain: { requested: 9, claimed: 1, left: 8 },
-  Lal: { requested: 0, claimed: 0, left: 0 },
-  Shukla: { requested: 9, claimed: 1, left: 8 },
-  Vivian: { requested: 0, claimed: 0, left: 2 },
-  Carlo: { requested: 5, claimed: 5, left: 0 },
+  Willis:    { requested: 9,  claimed: 4, left: 5 },
+  Bhatia:    { requested: 6,  claimed: 5, left: 1 },
+  Winter:    { requested: 5,  claimed: 3, left: 2 },
+  Boone:     { requested: 9,  claimed: 6, left: 3 },
+  Arora:     { requested: 9,  claimed: 7, left: 2 },
+  Jain:      { requested: 9,  claimed: 1, left: 8 },
+  Lal:       { requested: 0,  claimed: 0, left: 0 },
+  Shukla:    { requested: 9,  claimed: 1, left: 8 },
+  Vivian:    { requested: 0,  claimed: 0, left: 2 },
+  Carlo:     { requested: 5,  claimed: 5, left: 0 },
 };
 
 /* =========================================================
-   CALENDAR DATA (assigned shifts source)
+   CALENDAR DATA
 ========================================================= */
 const months = {
   "01": [
-    { day: "10", date: "2026-01-10", rni: null, coa: null },
-    { day: "17-19", date: "2026-01-17", rni: null, coa: null, detail: "MLK Day" },
-    { day: "24", date: "2026-01-24", rni: null, coa: null },
-    { day: "31", date: "2026-01-31", rni: null, coa: null },
+    { day: "10",       date: "2026-01-10", rni: null,      coa: null },
+    { day: "17-19",    date: "2026-01-17", rni: null,      coa: null, detail: "MLK Day" },
+    { day: "24",       date: "2026-01-24", rni: null,      coa: null },
+    { day: "31",       date: "2026-01-31", rni: null,      coa: null },
   ],
   "02": [
-    { day: "7", date: "2026-02-07", rni: "Boone", coa: null },
-    { day: "14", date: "2026-02-14", rni: "Boone", coa: null },
-    { day: "21", date: "2026-02-21", rni: "Willis", coa: null },
-    { day: "28", date: "2026-02-28", rni: "Willis", coa: null },
+    { day: "7",        date: "2026-02-07", rni: "Boone",   coa: null },
+    { day: "14",       date: "2026-02-14", rni: "Boone",   coa: null },
+    { day: "21",       date: "2026-02-21", rni: "Willis",  coa: null },
+    { day: "28",       date: "2026-02-28", rni: "Willis",  coa: null },
   ],
   "03": [
-    { day: "7", date: "2026-03-07", rni: "Ambal", coa: "Arora", isTaken: true },
-    { day: "14", date: "2026-03-14", rni: null, coa: "Winter" },
-    { day: "21", date: "2026-03-21", rni: "Ambal", coa: "Arora", isTaken: true },
-    { day: "28", date: "2026-03-28", rni: null, coa: "Arora" },
+    { day: "7",        date: "2026-03-07", rni: "Ambal",   coa: "Arora", isTaken: true },
+    { day: "14",       date: "2026-03-14", rni: null,      coa: "Winter" },
+    { day: "21",       date: "2026-03-21", rni: "Ambal",   coa: "Arora", isTaken: true },
+    { day: "28",       date: "2026-03-28", rni: null,      coa: "Arora" },
   ],
   "04": [
-    { day: "4", date: "2026-04-04", rni: "Sims", coa: null },
-    { day: "11", date: "2026-04-11", rni: null, coa: null },
-    { day: "18", date: "2026-04-18", rni: "Sims", coa: null },
-    { day: "25", date: "2026-04-25", rni: null, coa: null, detail: "PAS Meeting Coverage" },
+    { day: "4",        date: "2026-04-04", rni: "Sims",    coa: null },
+    { day: "11",       date: "2026-04-11", rni: null,      coa: null },
+    { day: "18",       date: "2026-04-18", rni: "Sims",    coa: null },
+    { day: "25",       date: "2026-04-25", rni: null,      coa: null, detail: "PAS Meeting Coverage" },
   ],
   "05": [
-    { day: "2", date: "2026-05-02", rni: null, coa: null },
-    { day: "9", date: "2026-05-09", rni: "Arora", coa: null },
-    { day: "16", date: "2026-05-16", rni: "Arora", coa: null },
-    { day: "23-25", date: "2026-05-23", rni: null, coa: null, detail: "Memorial Day" },
-    { day: "30", date: "2026-05-30", rni: "Arora", coa: null },
+    { day: "2",        date: "2026-05-02", rni: null,      coa: null },
+    { day: "9",        date: "2026-05-09", rni: "Arora",   coa: null },
+    { day: "16",       date: "2026-05-16", rni: "Arora",   coa: null },
+    { day: "23-25",    date: "2026-05-23", rni: null,      coa: null, detail: "Memorial Day" },
+    { day: "30",       date: "2026-05-30", rni: "Arora",   coa: null },
   ],
   "06": [
-    { day: "6", date: "2026-06-06", rni: "Schuyler", coa: "Winter", isTaken: true },
-    { day: "13", date: "2026-06-13", rni: "Boone", coa: null },
-    { day: "19-21", date: "2026-06-19", rni: "Schuyler", coa: "Winter", isTaken: true, detail: "Juneteenth Day" },
-    { day: "27", date: "2026-06-27", rni: "Boone", coa: null },
+    { day: "6",        date: "2026-06-06", rni: "Schuyler", coa: "Winter", isTaken: true },
+    { day: "13",       date: "2026-06-13", rni: "Boone",    coa: null },
+    { day: "19-21",    date: "2026-06-19", rni: "Schuyler", coa: "Winter", isTaken: true, detail: "Juneteenth Day" },
+    { day: "27",       date: "2026-06-27", rni: "Boone",    coa: null },
   ],
   "07": [
-    { day: "4-6", date: "2026-07-04", rni: "Jain", coa: "Carlo", isTaken: true, detail: "4th of July" },
-    { day: "11", date: "2026-07-11", rni: null, coa: "Willis" },
-    { day: "18", date: "2026-07-18", rni: null, coa: null },
-    { day: "25", date: "2026-07-25", rni: "Shukla", coa: "Willis", isTaken: true },
+    { day: "4-6",      date: "2026-07-04", rni: "Jain",     coa: "Carlo", isTaken: true, detail: "4th of July" },
+    { day: "11",       date: "2026-07-11", rni: null,       coa: "Willis" },
+    { day: "18",       date: "2026-07-18", rni: null,       coa: null },
+    { day: "25",       date: "2026-07-25", rni: "Shukla",   coa: "Willis", isTaken: true },
   ],
   "08": [
-    { day: "1", date: "2026-08-01", rni: "Boone", coa: null },
-    { day: "8", date: "2026-08-08", rni: "Sims", coa: "Carlo", isTaken: true },
-    { day: "15", date: "2026-08-15", rni: "Boone", coa: null },
-    { day: "22", date: "2026-08-22", rni: "Sims", coa: null },
-    { day: "29", date: "2026-08-29", rni: null, coa: "Carlo" },
+    { day: "1",        date: "2026-08-01", rni: "Boone",    coa: null },
+    { day: "8",        date: "2026-08-08", rni: "Sims",     coa: "Carlo", isTaken: true },
+    { day: "15",       date: "2026-08-15", rni: "Boone",    coa: null },
+    { day: "22",       date: "2026-08-22", rni: "Sims",     coa: null },
+    { day: "29",       date: "2026-08-29", rni: null,       coa: "Carlo" },
   ],
   "09": [
-    { day: "5-7", date: "2026-09-05", rni: "Mackay", coa: null, detail: "Labor Day" },
-    { day: "12", date: "2026-09-12", rni: null, coa: null },
-    { day: "19", date: "2026-09-19", rni: null, coa: null },
-    { day: "26", date: "2026-09-26", rni: null, coa: null },
+    { day: "5-7",      date: "2026-09-05", rni: "Mackay",   coa: null, detail: "Labor Day" },
+    { day: "12",       date: "2026-09-12", rni: null,       coa: null },
+    { day: "19",       date: "2026-09-19", rni: null,       coa: null },
+    { day: "26",       date: "2026-09-26", rni: null,       coa: null },
   ],
   "10": [
-    { day: "3", date: "2026-10-03", rni: "Kandasamy", coa: "Carlo", isTaken: true },
-    { day: "10", date: "2026-10-10", rni: "Travers", coa: "Bhatia", isTaken: true },
-    { day: "17", date: "2026-10-17", rni: "Kandasamy", coa: null },
-    { day: "24", date: "2026-10-24", rni: "Travers", coa: "Bhatia", isTaken: true },
-    { day: "31", date: "2026-10-31", rni: "Kandasamy", coa: "Carlo", isTaken: true },
+    { day: "3",        date: "2026-10-03", rni: "Kandasamy", coa: "Carlo",  isTaken: true },
+    { day: "10",       date: "2026-10-10", rni: "Travers",   coa: "Bhatia", isTaken: true },
+    { day: "17",       date: "2026-10-17", rni: "Kandasamy", coa: null },
+    { day: "24",       date: "2026-10-24", rni: "Travers",   coa: "Bhatia", isTaken: true },
+    { day: "31",       date: "2026-10-31", rni: "Kandasamy", coa: "Carlo",  isTaken: true },
   ],
   "11": [
-    { day: "7", date: "2026-11-07", rni: "Ambal", coa: null },
-    { day: "14", date: "2026-11-14", rni: "Bhatia", coa: null },
-    { day: "21", date: "2026-11-21", rni: "Ambal", coa: null },
-    { day: "26-28", date: "2026-11-26", rni: "Bhatia", coa: null, detail: "Thanksgiving" },
+    { day: "7",        date: "2026-11-07", rni: "Ambal",   coa: null },
+    { day: "14",       date: "2026-11-14", rni: "Bhatia",  coa: null },
+    { day: "21",       date: "2026-11-21", rni: "Ambal",   coa: null },
+    { day: "26-28",    date: "2026-11-26", rni: "Bhatia",  coa: null, detail: "Thanksgiving" },
   ],
   "12": [
-    { day: "5", date: "2026-12-05", rni: "Travers", coa: "Kandasamy", isTaken: true },
-    { day: "12", date: "2026-12-12", rni: null, coa: null },
-    { day: "19", date: "2026-12-19", rni: "Travers", coa: "Kandasamy", isTaken: true },
-    { day: "24-28", date: "2026-12-24", rni: "Bhatia", coa: "Arora", isTaken: true, detail: "Christmas" },
-    { day: "31-Jan 4", date: "2026-12-31", rni: "Kane", coa: "Kandasamy", isTaken: true, detail: "New Year’s Eve" },
+    { day: "5",        date: "2026-12-05", rni: "Travers",   coa: "Kandasamy", isTaken: true },
+    { day: "12",       date: "2026-12-12", rni: null,        coa: null },
+    { day: "19",       date: "2026-12-19", rni: "Travers",   coa: "Kandasamy", isTaken: true },
+    { day: "24-28",    date: "2026-12-24", rni: "Bhatia",    coa: "Arora",     isTaken: true, detail: "Christmas" },
+    { day: "31-Jan 4", date: "2026-12-31", rni: "Kane",      coa: "Kandasamy", isTaken: true, detail: "New Year’s Eve" },
   ],
 };
-
-const MONTH_KEYS = ["01","02","03","04","05","06","07","08","09","10","11","12"];
-const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const MONTH_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTH_KEYS  = ["01","02","03","04","05","06","07","08","09","10","11","12"];
+const MONTH_ABBR  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTH_FULL  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
 /* =========================================================
    HELPERS
 ========================================================= */
-function fmtLabel(dateStr) {
-  const [y, m, d] = dateStr.split("-");
-  return `${MONTH_ABBR[parseInt(m, 10) - 1]} ${parseInt(d, 10)}`;
-}
-function getAvailableServicesForDate(date) {
+const fmtLabel = (dateStr) => {
+  const [, m, d] = dateStr.split("-");
+  return `${MONTH_ABBR[parseInt(m,10)-1]} ${parseInt(d,10)}`;
+};
+
+const getAvailableServicesForDate = (date) => {
   for (const mk of MONTH_KEYS) {
-    const entry = months[mk].find((d) => d.date === date);
+    const entry = months[mk].find(d => d.date === date);
     if (entry) {
       const out = [];
       if (!entry.rni) out.push(SERVICES.RNI);
@@ -226,74 +217,126 @@ function getAvailableServicesForDate(date) {
     }
   }
   return [SERVICES.RNI, SERVICES.COA];
-}
-function compressRanks(list) {
-  return list
-    .slice()
-    .sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999))
-    .map((x, i) => ({ ...x, rank: i + 1 }));
-}
+};
 
 /* =========================================================
-   STATE (single bucket)
+   STATE (single Rankings list)
+   Invariants:
+   - Only one entry per DATE total (choose either RNI or COA).
+   - No duplicate date+service.
+   - Ranks compress to 1..N on every change.
 ========================================================= */
-const initialState = { prefs: [] }; // [{date, service, rank}]
+const initialState = { rankings: [] };
+
+function compressRanks(list) {
+  const sorted = [...list].sort((a,b) => (a.rank ?? 999) - (b.rank ?? 999));
+  return sorted.map((x, i) => ({ ...x, rank: i+1 }));
+}
 
 function reducer(state, action) {
   switch (action.type) {
     case "add": {
       const { date, service } = action;
-      if (!date || !service) return state;
-
-      // Enforce: cannot pick both services for the same date.
-      const filtered = state.prefs.filter((x) => x.date !== date);
-
-      // Already have exact (date, service)? do nothing
-      if (state.prefs.some((x) => x.date === date && x.service === service)) {
-        return state;
-      }
-
-      const next = [
-        ...filtered,
-        { date, service, rank: (filtered.length ? Math.max(...filtered.map(y => y.rank)) : 0) + 1 },
-      ];
-      return { prefs: compressRanks(next) };
+      if (!service) return state;
+      // block both services on same weekend
+      if (state.rankings.some(r => r.date === date)) return state;
+      if (state.rankings.some(r => r.date === date && r.service === service)) return state;
+      const next = [...state.rankings, { date, service, rank: (state.rankings.length + 1) }];
+      return { rankings: compressRanks(next) };
     }
-
     case "remove": {
-      const { date, service } = action;
-      const next = state.prefs.filter(
-        (x) => !(x.date === date && x.service === service)
-      );
-      return { prefs: compressRanks(next) };
+      const next = state.rankings.filter(r => !(r.date === action.date && r.service === action.service));
+      return { rankings: compressRanks(next) };
     }
-
     case "reorder": {
-      // Robust reorder with visual indices
       const { fromIndex, toIndex } = action;
-      const arr = compressRanks(state.prefs);
-      if (
-        fromIndex < 0 ||
-        toIndex < 0 ||
-        fromIndex >= arr.length ||
-        toIndex >= arr.length
-      ) {
-        return state;
-      }
-      const moved = arr[fromIndex];
-      const rest = arr.filter((_, i) => i !== fromIndex);
-      rest.splice(toIndex, 0, moved);
-      const renum = rest.map((x, i) => ({ ...x, rank: i + 1 }));
-      return { prefs: renum };
+      if (fromIndex === toIndex) return state;
+      const arr = [...state.rankings];
+      if (fromIndex < 0 || fromIndex >= arr.length || toIndex < 0 || toIndex >= arr.length) return state;
+      const [moved] = arr.splice(fromIndex, 1);
+      arr.splice(toIndex, 0, moved);
+      return { rankings: compressRanks(arr) };
     }
-
+    case "load_from_draft": {
+      const list = Array.isArray(action.rankings) ? action.rankings : [];
+      const cleaned = list.filter(x => x && x.date && x.service);
+      return { rankings: compressRanks(cleaned) };
+    }
     case "clear":
       return initialState;
-
     default:
       return state;
   }
 }
+
+/* =========================================================
+   Small atoms
+========================================================= */
+const Pill = ({children}) => <span className="pill">{children}</span>;
+
+const DragHandle = () => (
+  <span className="drag-handle" aria-hidden="true" title="Drag to reorder">
+    <span className="dot-row">
+      <span className="dot" /><span className="dot" />
+    </span>
+    <span className="dot-row">
+      <span className="dot" /><span className="dot" />
+    </span>
+  </span>
+);
+
+/* Simple inline popover used by DragBuckets to pick a service near cursor */
+function InlineServicePopover({ x, y, date, onPick, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [onClose]);
+
+  const avail = getAvailableServicesForDate(date);
+  return (
+    <div
+      ref={ref}
+      style={{
+        position:"fixed", top: y + 8, left: x + 8, zIndex: 9999,
+        background:"#fff", border:"1px solid #e5e7eb", borderRadius: 10,
+        padding: 8, boxShadow:"0 10px 30px rgba(0,0,0,0.12)"
+      }}
+    >
+      <div style={{fontWeight:700, fontSize:12, marginBottom:6}}>
+        {fmtLabel(date)} — Pick service
+      </div>
+      <div style={{display:"flex", gap:8}}>
+        {avail.includes(SERVICES.RNI) && (
+          <button className="btn btn-green" onClick={() => onPick(SERVICES.RNI)}>RNI</button>
+        )}
+        {avail.includes(SERVICES.COA) && (
+          <button className="btn btn-blue" onClick={() => onPick(SERVICES.COA)}>COA</button>
+        )}
+      </div>
+      <button
+        className="btn-link"
+        style={{marginTop:4, fontSize:11}}
+        onClick={onClose}
+      >
+        cancel
+      </button>
+    </div>
+  );
+}
+
+/* =========================================================
+   MODES
+========================================================= */
+const MODES = {
+  CAL: "calendar",
+  QA:  "quick",
+  RB:  "rank",
+  DB:  "drag",
+};
 
 /* =========================================================
    MAIN APP
@@ -301,8 +344,9 @@ function reducer(state, action) {
 export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), []);
   const auth = useMemo(() => getAuth(app), [app]);
-  const db = useMemo(() => getFirestore(app), [app]);
+  const db   = useMemo(() => getFirestore(app), [app]);
 
+  // Auth (anon)
   const [uid, setUid] = useState(null);
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -312,135 +356,129 @@ export default function App() {
     return () => unsub();
   }, [auth]);
 
-  // Login gate via codes
-  const [gateEmail, setGateEmail] = useState("");
-  const [gateCode, setGateCode] = useState("");
+  // Name gate via codes
   const [me, setMe] = useState("");
-  const [gateErr, setGateErr] = useState("");
+  const [gateEmail, setGateEmail] = useState("");
+  const [gateCode, setGateCode]   = useState("");
+  const [gateErr, setGateErr]     = useState("");
 
-  const selectedAtt = useMemo(
-    () => ATTENDINGS.find((a) => a.name === me) || null,
-    [me]
-  );
-
-  // ATTENDING_LIMITS panel visibility
-  const [showLimits, setShowLimits] = useState(false);
-
-  // Mode selection (restore 4 modes)
-  const MODES = ["Calendar", "QuickAdd", "RankBoard", "DragBuckets"];
-  const [mode, setMode] = useState("Calendar");
-
-  // Single-bucket state
-  const [{ prefs }, dispatch] = useReducer(reducer, initialState);
-
-  // Drag context (works reliably)
-  const dragIndexRef = useRef(null);
-  const onDragStartItem = (index, e) => {
-    dragIndexRef.current = index;
+  const selected = useMemo(() => ATTENDINGS.find(a => a.name === me) || null, [me]);
+  const isAdmin = useMemo(() => {
     try {
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("text/plain", String(index));
-    } catch {}
-  };
-  const onDragOverItem = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; };
-  const onDropItem = (index) => {
-    const from = dragIndexRef.current;
-    if (from == null) return;
-    if (from === index) return;
-    dispatch({ type: "reorder", fromIndex: from, toIndex: index });
-    dragIndexRef.current = null;
-  };
-  const onDragEndItem = () => { dragIndexRef.current = null; };
+      const q = new URLSearchParams(window.location.search);
+      return q.get("admin") === "1" && selected?.email === ADMIN_EMAIL;
+    } catch { return false; }
+  }, [selected]);
 
-  // Helpers to add/remove picks
-  const addPref = useCallback((date, service) => {
-    const avail = getAvailableServicesForDate(date);
-    if (!avail.includes(service)) return; // block invalid service
-    dispatch({ type: "add", date, service });
-  }, []);
-  const removePref = useCallback((date, service) => {
-    dispatch({ type: "remove", date, service });
-  }, []);
+  // Modes
+  const [mode, setMode] = useState(MODES.RB);
+
+  // Rankings state (single list)
+  const [{ rankings }, dispatch] = useReducer(reducer, initialState);
+
+  const add = useCallback((date, service) => dispatch({ type: "add", date, service }), []);
+  const remove = useCallback((date, service) => dispatch({ type: "remove", date, service }), []);
   const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
 
-  // Already assigned (from months) for the logged-in attending
-  const alreadyAssigned = useMemo(() => {
-    if (!me) return [];
-    const out = [];
-    for (const mk of MONTH_KEYS) {
-      for (const d of months[mk]) {
-        if (d.rni === me) out.push({ date: d.date, service: "RNI" });
-        if (d.coa === me) out.push({ date: d.date, service: "COA" });
+  // ---- Drag & drop reorder (ONLY for rankings list) ----
+  const dragIndex = useRef(null);
+  const onDragStartItem = (i) => (e) => {
+    dragIndex.current = i;
+    e.dataTransfer.effectAllowed = "move";
+  };
+  const onDragOverItem = (i) => (e) => {
+    // Needed so drop fires in most browsers
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+  const onDropItem = (i) => (e) => {
+    e.preventDefault();
+    const from = dragIndex.current;
+    const to = i;
+    if (from != null && to != null) {
+      dispatch({ type: "reorder", fromIndex: from, toIndex: to });
+    }
+    dragIndex.current = null;
+  };
+
+  // --- Persistent drafts: load from Firestore when name is set ---
+  useEffect(() => {
+    if (!db || !selected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ref = doc(db, "prefs_draft", `${YEAR}-${selected.name}`);
+        const snap = await getDoc(ref);
+        if (!snap.exists() || cancelled) return;
+        const data = snap.data();
+        if (Array.isArray(data.rankings)) {
+          dispatch({ type: "load_from_draft", rankings: data.rankings });
+        }
+      } catch (e) {
+        console.error("Failed to load draft", e);
       }
-    }
-    return out.sort((a, b) => (a.date < b.date ? -1 : 1));
-  }, [me]);
+    })();
+    return () => { cancelled = true; };
+  }, [db, selected]);
 
-  // Limits summary
-  const limitsSummary = useMemo(() => {
-    if (!me) return null;
-    const lim = ATTENDING_LIMITS[me];
-    if (!lim) return null;
-    return {
-      requested: lim.requested,
-      claimed: lim.claimed,
-      left: lim.left,
-      chosenNow: prefs.length,
-    };
-  }, [me, prefs.length]);
+  // --- Persistent drafts: auto-save rankings whenever they change ---
+  useEffect(() => {
+    if (!db || !selected) return;
+    (async () => {
+      try {
+        const ref = doc(db, "prefs_draft", `${YEAR}-${selected.name}`);
+        await setDoc(ref, { rankings, ts: serverTimestamp() }, { merge: true });
+      } catch (e) {
+        console.error("Failed to save draft", e);
+      }
+    })();
+  }, [db, selected, rankings]);
 
-  // CSV download
+  // CSV download (unchanged)
   const downloadCSV = () => {
-    if (!selectedAtt) {
-      alert("Please verify your name/code first.");
-      return;
-    }
-    const rows = [];
-    const ordered = prefs.slice().sort((a, b) => a.rank - b.rank);
-    for (const x of ordered) {
-      rows.push({
-        name: selectedAtt.name,
-        date: x.date,
-        service: x.service,
-        rank: x.rank,
-      });
-    }
-    const headers = ["name", "date", "service", "rank"];
-    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const csv = [headers.join(","), ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))].join("\n");
+    if (!selected) { alert("Verify your name/code first."); return; }
+    const rows = compressRanks(rankings).map(r => ({
+      name: selected.name,
+      date: r.date,
+      service: r.service,
+      rank: r.rank
+    }));
+    const headers = ["name","date","service","rank"];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g,'""')}"`;
+    const csv = [headers.join(","), ...rows.map(r => headers.map(h => esc(r[h])).join(","))].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${YEAR}-${selectedAtt.name}-preferences.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    a.download = `${YEAR}-${selected.name}-preferences.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   };
 
-  // Submit flow with CSV prompt
-  const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
+  // Submit (unchanged prompt flow)
   const submit = async () => {
-    if (!selectedAtt) {
-      alert("Log in with your code first.");
-      return;
-    }
-    setShowSubmitPrompt(true);
-  };
-  const reallySubmit = async () => {
-    if (!selectedAtt) return;
-    const payload = {
-      appId,
-      year: YEAR,
-      who: selectedAtt.name,
-      email: selectedAtt.email,
-      prefs: prefs.slice().sort((a, b) => a.rank - b.rank),
-      ts: serverTimestamp(),
-    };
+    if (!selected) { alert("Log in with your code first."); return; }
+    const proceed = window.confirm(
+      "Please click OK to download and verify your CSV preview of rankings.\n" +
+      "After reviewing, click OK again on the next prompt to save to the server."
+    );
+    if (!proceed) return;
+    downloadCSV();
+    const proceed2 = window.confirm("If your CSV looks correct, click OK to save to the server.");
+    if (!proceed2) return;
     try {
-      await setDoc(doc(db, "prefs_single", `${YEAR}-${selectedAtt.name}`), payload);
-      setShowSubmitPrompt(false);
+      await setDoc(
+        doc(db, "prefs_single", `${YEAR}-${selected.name}`),
+        {
+          appId,
+          year: YEAR,
+          who: selected.name,
+          email: selected.email,
+          rankings: compressRanks(rankings),
+          ts: serverTimestamp(),
+        },
+        { merge: true }
+      );
       alert("Saved to Firestore.");
     } catch (e) {
       console.error(e);
@@ -448,204 +486,335 @@ export default function App() {
     }
   };
 
-  /* ------------------ Mode UIs ------------------ */
-  const Calendar = () => (
-    <div className="months">
-      {MONTH_KEYS.map((mk, i) => (
-        <details key={mk} className="month" open={i === 0}>
-          <summary className="month-toggle">
-            <span className="month-title">{MONTH_FULL[i]}</span>
-          </summary>
-          <div className="days">
-            {months[mk].map((d) => {
-              const avail = getAvailableServicesForDate(d.date);
-              return (
-                <div key={`${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`} className="day">
-                  <div className="day-top">
-                    <span className="day-label">{d.day}</span>
-                    <span className="day-date">({fmtLabel(d.date)})</span>
-                  </div>
-                  {d.detail && <div className="day-detail">{d.detail}</div>}
-                  <div className="svc-actions">
-                    {avail.includes(SERVICES.RNI) && (
-                      <button className="btn btn-svc" onClick={() => addPref(d.date, SERVICES.RNI)}>
-                        RNI → Rank
-                      </button>
-                    )}
-                    {avail.includes(SERVICES.COA) && (
-                      <button className="btn btn-svc" onClick={() => addPref(d.date, SERVICES.COA)}>
-                        COA → Rank
-                      </button>
-                    )}
-                    {avail.length === 0 && <span className="pill pill-muted">Full</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      ))}
-    </div>
-  );
+  // Already assigned shifts for logged-in attending
+  const alreadyAssigned = useMemo(() => {
+    if (!selected) return [];
+    const out = [];
+    for (const mk of MONTH_KEYS) {
+      for (const d of months[mk]) {
+        if (d.rni === selected.name) out.push({ date: d.date, service: "RNI" });
+        if (d.coa === selected.name) out.push({ date: d.date, service: "COA" });
+      }
+    }
+    return out.sort((a,b) => a.date.localeCompare(b.date));
+  }, [selected]);
 
-  const QuickAdd = () => {
-    const [mkey, setMkey] = useState("01");
-    const [date, setDate] = useState("");
-    const [service, setService] = useState("");
-    const saturdays = months[mkey];
-    useEffect(() => { setDate(""); setService(""); }, [mkey]);
-
-    const onAdd = () => {
-      if (!date || !service) return;
-      addPref(date, service);
+  const limitsSummary = useMemo(() => {
+    if (!selected) return null;
+    const lim = ATTENDING_LIMITS[selected.name];
+    if (!lim) return null;
+    return {
+      requested: lim.requested,
+      claimed:   lim.claimed,
+      left:      lim.left,
+      chosenNow: rankings.length,
     };
+  }, [selected, rankings.length]);
 
-    return (
-      <div className="quickadd">
-        <div className="qa-row">
-          <label>Month</label>
-          <select value={mkey} onChange={(e) => setMkey(e.target.value)}>
-            {MONTH_KEYS.map((k, i) => (
-              <option key={k} value={k}>{MONTH_FULL[i]}</option>
-            ))}
-          </select>
-        </div>
-        <div className="qa-row">
-          <label>Saturday</label>
-          <select value={date} onChange={(e) => setDate(e.target.value)}>
-            <option value="">Select…</option>
-            {saturdays.map((d) => (
-              <option key={d.date} value={d.date}>
-                {fmtLabel(d.date)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="qa-row">
-          <label>Service</label>
-          <select
-            value={service}
-            onChange={(e) => setService(e.target.value)}
-            disabled={!date}
-          >
-            <option value="">Select…</option>
-            {date &&
-              getAvailableServicesForDate(date).map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-          </select>
-        </div>
-        <div className="qa-row">
-          <button className="btn btn-green" onClick={onAdd}>Add to Ranking</button>
-        </div>
-      </div>
-    );
-  };
-
-  // RankBoard: chip grid alternative (not the calendar layout)
-  const RankBoard = () => (
-    <div className="rankboard">
-      {MONTH_KEYS.map((mk, i) => (
-        <details key={mk} className="rb-month" open={i === 0}>
-          <summary className="rb-month-head">{MONTH_FULL[i]}</summary>
-          <div className="rb-grid">
-            {months[mk].map((d) => {
-              const avail = getAvailableServicesForDate(d.date);
-              const full = avail.length === 0;
-              return (
-                <div key={d.date} className={`rb-card ${full ? "is-full" : ""}`}>
-                  <div className="rb-top">
-                    <div className="rb-date">{fmtLabel(d.date)}</div>
-                    {d.detail && <div className="rb-detail">{d.detail}</div>}
-                  </div>
-                  <div className="rb-actions">
-                    {avail.includes(SERVICES.RNI) && (
-                      <button className="btn btn-svc small" onClick={() => addPref(d.date, SERVICES.RNI)}>
-                        RNI
-                      </button>
-                    )}
-                    {avail.includes(SERVICES.COA) && (
-                      <button className="btn btn-svc small" onClick={() => addPref(d.date, SERVICES.COA)}>
-                        COA
-                      </button>
-                    )}
-                    {full && <span className="pill pill-muted">Full</span>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      ))}
-    </div>
-  );
-
-  // DragBuckets: left = available chips; click to add (keeps service selectors inline)
-  const DragBuckets = () => (
-    <div className="dragbuckets">
-      <div className="db-left">
-        {MONTH_KEYS.map((mk, i) => (
-          <details key={mk} className="db-month" open={i === 0}>
-            <summary className="db-month-head">{MONTH_FULL[i]}</summary>
-            <div className="db-list">
+  // ---- Modes implementations (Calendar / QuickAdd / RankBoard / DragBuckets) ----
+  // Calendar
+  const CalendarMode = () => (
+    <div className="months">
+      {MONTH_KEYS.map((mk, idx) => (
+        <div className="month" key={mk}>
+          <details className="month-details" open={mode !== MODES.CAL ? false : true}>
+            <summary className="month-header">
+              <span className="month-title">{MONTH_FULL[idx]}</span>
+            </summary>
+            <div className="days">
               {months[mk].map((d) => {
+                const key = `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`;
                 const avail = getAvailableServicesForDate(d.date);
                 return (
-                  <div className="db-chip" key={d.date}>
-                    <div className="db-chip-main">
-                      <div className="db-chip-date">{fmtLabel(d.date)}</div>
-                      {d.detail && <div className="db-chip-note">{d.detail}</div>}
+                  <div className="day" key={key}>
+                    <div className="day-top">
+                      <span className="day-label">{d.day}</span>
+                      <span className="day-date">({fmtLabel(d.date)})</span>
                     </div>
-                    <div className="db-chip-actions">
+                    {d.detail && <div className="day-detail">{d.detail}</div>}
+                    <div className="svc-row">
+                      {d.rni && (
+                        <Pill>RNI: {d.rni}</Pill>
+                      )}
+                      {d.coa && (
+                        <Pill>COA: {d.coa}</Pill>
+                      )}
+                      {d.isTaken && <Pill>Full weekend</Pill>}
+                    </div>
+                    <div className="svc-actions">
                       {avail.includes(SERVICES.RNI) && (
-                        <button className="btn tiny" onClick={() => addPref(d.date, SERVICES.RNI)}>RNI</button>
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.RNI)}
+                        >
+                          RNI → Rank
+                        </button>
                       )}
                       {avail.includes(SERVICES.COA) && (
-                        <button className="btn tiny" onClick={() => addPref(d.date, SERVICES.COA)}>COA</button>
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.COA)}
+                        >
+                          COA → Rank
+                        </button>
                       )}
-                      {avail.length === 0 && <span className="pill pill-muted tiny">Full</span>}
+                      {avail.length === 0 && (
+                        <span className="pill pill-muted">Full</span>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
           </details>
+        </div>
+      ))}
+    </div>
+  );
+
+  // QuickAdd
+  const QuickAddMode = () => {
+    const [mkey, setMkey] = useState("01");
+    const [date, setDate] = useState("");
+    const [service, setService] = useState("");
+    const saturdays = months[mkey];
+    useEffect(() => { setDate(""); setService(""); }, [mkey]);
+
+    const chosen = saturdays.find(d => d.date === date);
+    const avail = date ? getAvailableServicesForDate(date) : [];
+
+    return (
+      <div className="quick-add">
+        <div className="qa-row">
+          <label>
+            Month
+            <select
+              className="qa-select"
+              value={mkey}
+              onChange={e => setMkey(e.target.value)}
+            >
+              {MONTH_KEYS.map((mk, i) => (
+                <option key={mk} value={mk}>{MONTH_FULL[i]}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Saturday
+            <select
+              className="qa-select"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+            >
+              <option value="">Pick Saturday</option>
+              {saturdays.map(d => (
+                <option key={d.date} value={d.date}>
+                  {d.day} ({fmtLabel(d.date)})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Service
+            <select
+              className="qa-select"
+              value={service}
+              onChange={e => setService(e.target.value)}
+              disabled={!date}
+            >
+              <option value="">Pick service</option>
+              {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI}>RNI</option>}
+              {avail.includes(SERVICES.COA) && <option value={SERVICES.COA}>COA</option>}
+            </select>
+          </label>
+          <button
+            className="btn btn-green"
+            disabled={!date || !service}
+            onClick={() => {
+              add(date, service);
+            }}
+          >
+            Add to Rankings
+          </button>
+        </div>
+        {chosen && (
+          <div className="qa-note">
+            You are adding: <b>{fmtLabel(chosen.date)}</b> — <b>{service}</b>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // RankBoard (grid style)
+  const RankBoardMode = () => (
+    <div className="rankboard">
+      <div className="rb-instructions">
+        Click directly on <b>RNI</b> or <b>COA</b> to add to your ranked list on the right (#1 = most preferred).
+      </div>
+      <div className="rb-grid">
+        {MONTH_KEYS.map((mk, idx) => (
+          <div className="rb-month" key={mk}>
+            <div className="rb-month-title">{MONTH_FULL[idx]}</div>
+            {months[mk].map(d => {
+              const key = `${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`;
+              const avail = getAvailableServicesForDate(d.date);
+              return (
+                <div className="rb-row" key={key}>
+                  <div className="rb-date">
+                    <span>{fmtLabel(d.date)}</span>
+                    {d.detail && <span className="rb-detail">({d.detail})</span>}
+                  </div>
+                  <div className="rb-actions">
+                    {avail.includes(SERVICES.RNI) ? (
+                      <button
+                        className="pill pill-click"
+                        onClick={() => add(d.date, SERVICES.RNI)}
+                      >
+                        RNI
+                      </button>
+                    ) : (
+                      <span className="pill pill-muted">RNI full</span>
+                    )}
+                    {avail.includes(SERVICES.COA) ? (
+                      <button
+                        className="pill pill-click"
+                        onClick={() => add(d.date, SERVICES.COA)}
+                      >
+                        COA
+                      </button>
+                    ) : (
+                      <span className="pill pill-muted">COA full</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         ))}
       </div>
-      <div className="db-right">
-        <div className="section">
-          <div className="section-head">
-            <h3 className="section-title">Your Rankings (drag to reorder)</h3>
-            <div className="section-right">
-              <button className="btn-link" onClick={clearAll}>Clear all</button>
-            </div>
-          </div>
-          <div className="section-body">
-            <ol className="preview-list">
-              {compressRanks(prefs).map((x, i) => (
-                <li
-                  key={`${x.date}-${x.service}`}
-                  className="preview-item draggable-item"
-                  draggable
-                  onDragStart={(e) => onDragStartItem(i, e)}
-                  onDragOver={onDragOverItem}
-                  onDrop={() => onDropItem(i)}
-                  onDragEnd={onDragEndItem}
-                  title="Drag to reorder"
-                >
-                  <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                  <button className="btn-link" onClick={() => removePref(x.date, x.service)}>remove</button>
-                </li>
-              ))}
-              {prefs.length === 0 && (
-                <li className="preview-item">
-                  <span className="muted">No preferences yet. Add from the left panel.</span>
-                </li>
-              )}
-            </ol>
+    </div>
+  );
+
+  // DragBuckets
+  const DragBucketsMode = () => {
+    const [popover, setPopover] = useState(null); // {x,y,date} | null
+    const openPopover = (e, date) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setPopover({ x: rect.right, y: rect.top, date });
+    };
+    const closePopover = () => setPopover(null);
+
+    const onPickService = (svc) => {
+      if (!popover) return;
+      add(popover.date, svc);
+      setPopover(null);
+    };
+
+    const availableChips = [];
+    for (const mk of MONTH_KEYS) {
+      for (const d of months[mk]) {
+        availableChips.push({ date: d.date });
+      }
+    }
+    const chosenKeys = new Set(rankings.map(r => `${r.date}`));
+    const remaining = availableChips.filter(c => !chosenKeys.has(c.date));
+
+    return (
+      <div className="dragbuckets">
+        <div className="db-left">
+          <div className="db-title">Available weekends</div>
+          <div className="db-months">
+            {MONTH_KEYS.map((mk, idx) => (
+              <div className="db-month" key={mk}>
+                <div className="db-month-title">{MONTH_FULL[idx]}</div>
+                <div className="db-chip-row">
+                  {months[mk].map(d => {
+                    if (chosenKeys.has(d.date)) return null;
+                    const key = d.date;
+                    return (
+                      <button
+                        key={key}
+                        className="db-chip"
+                        onClick={(e) => openPopover(e, d.date)}
+                      >
+                        {fmtLabel(d.date)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+        <div className="db-right">
+          <div className="db-title">Drag to re-order your ranked weekends</div>
+          <ol className="preview-list">
+            {compressRanks(rankings).map((r, idx) => (
+              <li
+                key={`${r.date}-${r.service}`}
+                className="preview-item draggable-item"
+                draggable
+                onDragStart={onDragStartItem(idx)}
+                onDragOver={onDragOverItem(idx)}
+                onDrop={onDropItem(idx)}
+              >
+                <DragHandle />
+                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                <button
+                  className="btn-link"
+                  onClick={() => remove(r.date, r.service)}
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+            {rankings.length === 0 && (
+              <li className="preview-item">
+                <span className="muted">No preferences yet. Click a weekend on the left to pick a service.</span>
+              </li>
+            )}
+          </ol>
+        </div>
+        {popover && (
+          <InlineServicePopover
+            x={popover.x}
+            y={popover.y}
+            date={popover.date}
+            onPick={onPickService}
+            onClose={closePopover}
+          />
+        )}
       </div>
+    );
+  };
+
+  // ---- Command-style mode switcher ----
+  const ModeTabs = () => (
+    <div className="mode-tabs">
+      <button
+        className={mode === MODES.CAL ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.CAL)}
+      >
+        Calendar
+      </button>
+      <button
+        className={mode === MODES.QA ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.QA)}
+      >
+        QuickAdd
+      </button>
+      <button
+        className={mode === MODES.RB ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.RB)}
+      >
+        RankBoard
+      </button>
+      <button
+        className={mode === MODES.DB ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.DB)}
+      >
+        DragBuckets
+      </button>
     </div>
   );
 
@@ -685,7 +854,6 @@ export default function App() {
             const att = ATTENDINGS.find((a) => a.email === gateEmail);
             setGateErr("");
             setMe(att.name);
-            setShowLimits(true); // show targets once after login
           }}
         >
           Verify & Continue
@@ -707,8 +875,12 @@ export default function App() {
             <div className="section-title">UAB/COA Weekend Attending Scheduler 2026</div>
             <div className="spacer" />
             <span className="badge">{firebaseConfig.projectId}</span>
-            <button className="btn" onClick={submit}>Submit</button>
-            <button className="btn btn-green" onClick={downloadCSV}>Download CSV</button>
+            <button className="btn" onClick={submit}>
+              Submit
+            </button>
+            <button className="btn btn-green" onClick={downloadCSV}>
+              Download CSV
+            </button>
           </div>
         </div>
 
@@ -723,13 +895,10 @@ export default function App() {
               </div>
             ) : (
               <>
-                {showLimits && limitsSummary && (
+                {limitsSummary && (
                   <div className="section">
                     <div className="section-head">
                       <h3 className="section-title">Your targets & current assignments</h3>
-                      <div className="section-right">
-                        <button className="btn btn-amber" onClick={() => setShowLimits(false)}>OK</button>
-                      </div>
                     </div>
                     <div className="section-body">
                       <div className="muted" style={{marginBottom:8}}>
@@ -739,7 +908,9 @@ export default function App() {
                         You’ve ranked now: <b>{limitsSummary.chosenNow}</b>
                       </div>
                       <div>
-                        <div style={{fontWeight:600, marginBottom:4}}>Already assigned to you (calendar):</div>
+                        <div style={{fontWeight:600, marginBottom:4}}>
+                          Already assigned to you (from calendar):
+                        </div>
                         <ul style={{margin:0, paddingLeft:18}}>
                           {alreadyAssigned.length === 0 && <li>None yet.</li>}
                           {alreadyAssigned.map((x) => (
@@ -753,67 +924,68 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Mode selector */}
                 <div className="section">
                   <div className="section-head">
                     <h3 className="section-title">Modes</h3>
                   </div>
                   <div className="section-body">
-                    <div className="modes">
-                      {MODES.map((m) => (
-                        <button
-                          key={m}
-                          className={`mode-tab ${mode === m ? "active" : ""}`}
-                          onClick={() => setMode(m)}
-                        >
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="mode-panel">
-                      {mode === "Calendar" && <Calendar />}
-                      {mode === "QuickAdd" && <QuickAdd />}
-                      {mode === "RankBoard" && <RankBoard />}
-                      {mode === "DragBuckets" && <DragBuckets />}
-                    </div>
+                    <ModeTabs />
+                  </div>
+                </div>
+
+                <div className="section">
+                  <div className="section-head">
+                    <h3 className="section-title">
+                      {mode === MODES.CAL && "Calendar"}
+                      {mode === MODES.QA  && "QuickAdd"}
+                      {mode === MODES.RB  && "RankBoard"}
+                      {mode === MODES.DB  && "DragBuckets"}
+                    </h3>
+                  </div>
+                  <div className="section-body">
+                    {mode === MODES.CAL && <CalendarMode />}
+                    {mode === MODES.QA  && <QuickAddMode />}
+                    {mode === MODES.RB  && <RankBoardMode />}
+                    {mode === MODES.DB  && <DragBucketsMode />}
                   </div>
                 </div>
               </>
             )}
           </div>
 
-          {/* Rankings (global, always visible) */}
+          {/* Rankings side panel (always visible) */}
           <aside className="side">
             <div className="section">
               <div className="section-head">
                 <h3 className="section-title">Rankings (#1 = most preferred)</h3>
                 <div className="section-right">
-                  <button className="btn-link" onClick={clearAll}>Clear all</button>
+                  <button className="btn-link" onClick={clearAll}>
+                    Clear all
+                  </button>
                 </div>
               </div>
               <div className="section-body">
                 <ol className="preview-list">
-                  {compressRanks(prefs).map((x, i) => (
+                  {compressRanks(rankings).map((r, idx) => (
                     <li
-                      key={`${x.date}-${x.service}`}
+                      key={`${r.date}-${r.service}`}
                       className="preview-item draggable-item"
                       draggable
-                      onDragStart={(e) => onDragStartItem(i, e)}
-                      onDragOver={onDragOverItem}
-                      onDrop={() => onDropItem(i)}
-                      onDragEnd={onDragEndItem}
-                      title="Drag to reorder"
+                      onDragStart={onDragStartItem(idx)}
+                      onDragOver={onDragOverItem(idx)}
+                      onDrop={onDropItem(idx)}
                     >
-                      <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
+                      <DragHandle />
+                      <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
                       <button
                         className="btn-link"
-                        onClick={() => removePref(x.date, x.service)}
+                        onClick={() => remove(r.date, r.service)}
                       >
                         remove
                       </button>
                     </li>
                   ))}
-                  {prefs.length === 0 && (
+                  {rankings.length === 0 && (
                     <li className="preview-item">
                       <span className="muted">No preferences yet. Add from any mode.</span>
                     </li>
@@ -822,7 +994,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Who (locked after login) */}
             <div className="section">
               <div className="section-head">
                 <h3 className="section-title">Who</h3>
@@ -850,27 +1021,23 @@ export default function App() {
                 </div>
               </div>
             </div>
+
+            {isAdmin && (
+              <div className="section">
+                <div className="section-head">
+                  <h3 className="section-title">Admin</h3>
+                </div>
+                <div className="section-body">
+                  <div className="muted">
+                    Admin view enabled (query Firestore collection <code>prefs_single</code> for all submissions).
+                  </div>
+                </div>
+              </div>
+            )}
           </aside>
         </div>
       </div>
       <div className="band" />
-
-      {/* Submit prompt */}
-      {showSubmitPrompt && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="modal-title">Review before submitting</div>
-            <p style={{marginTop:8}}>
-              Please <b>download your CSV</b> and quickly verify that your name, dates, services, and ranks are correct.
-            </p>
-            <div className="row right gap" style={{marginTop:8}}>
-              <button className="btn" onClick={() => setShowSubmitPrompt(false)}>Cancel</button>
-              <button className="btn" onClick={downloadCSV}>Download CSV</button>
-              <button className="btn btn-green" onClick={reallySubmit}>Submit to Firestore</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
