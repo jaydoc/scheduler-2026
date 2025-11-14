@@ -62,15 +62,15 @@ const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 
 const ATTENDINGS = [
-  { name: "Ambal", fullName: "Namasivayam Ambalavanan", email: "nambalav@uabmc.edu" },
+  { name: "Ambal", fullName: "Namasivayam Ambalavanan", email: "nambalav@uab.edu" },
   { name: "Arora", fullName: "Nitin Arora", email: "nitinarora@uabmc.edu" },
   { name: "Bhatia", fullName: "Kulsajan Bhatia", email: "ksbhatia@uabmc.edu" },
-  { name: "Boone", fullName: "Neal Boone", email: "nboone@uabmc.edu" },
+  { name: "Boone", fullName: "Neal Boone", email: "boone@uabmc.edu" },
   { name: "Carlo", fullName: "Waldemar Carlo", email: "wcarlo@uabmc.edu" },
   { name: "Jain", fullName: "Viral Jain", email: "viraljain@uabmc.edu" },
   { name: "Kandasamy", fullName: "Jegen Kandasamy", email: "jkandasamy@uabmc.edu", isAdmin: true },
   { name: "Kane", fullName: "Andrea Kane", email: "akane@uabmc.edu" },
-  { name: "Mackay", fullName: "Amy Mackay", email: "amysessions@uabmc.edu" },
+  { name: "Mackay", fullName: "Amy Mackay", email: "mackay@uabmc.edu" },
   { name: "Schuyler", fullName: "Amelia Schuyler", email: "aschuyler@uabmc.edu" },
   { name: "Shukla", fullName: "Vivek Shukla", email: "vshukla@uabmc.edu" },
   { name: "Sims", fullName: "Brian Sims", email: "bsims@uabmc.edu" },
@@ -83,15 +83,15 @@ const ATTENDINGS = [
 ];
 
 const ATTENDING_CODES = {
-  "nambalav@uabmc.edu": "UAB26-7KQ2T9",
+  "nambalav@uab.edu": "UAB26-7KQ2T9",
   "nitinarora@uabmc.edu": "UAB26-M3ZP5H",
   "ksbhatia@uabmc.edu": "UAB26-X8D4N2",
-  "nboone@uabmc.edu": "UAB26-R6C9JW",
+  "boone@uabmc.edu": "UAB26-R6C9JW",
   "wcarlo@uabmc.edu": "UAB26-P2L7VQ",
   "viraljain@uabmc.edu": "UAB26-HT5M8A",
   "jkandasamy@uabmc.edu": "UAB26-B9Y3KC",
   "akane@uabmc.edu": "UAB26-W4N6UE",
-  "amysessions@uabmc.edu": "UAB26-J2F8RD",
+  "mackay@uabmc.edu": "UAB26-J2F8RD",
   "aschuyler@uabmc.edu": "UAB26-Z7T3LM",
   "vshukla@uabmc.edu": "UAB26-Q5R9BX",
   "bsims@uabmc.edu": "UAB26-N6V2PG",
@@ -425,18 +425,29 @@ export default function App() {
 
   // Admin functions
   const loadAllSubmissions = async () => {
-    if (!db) return;
+    if (!db) {
+      alert("Database not ready");
+      return;
+    }
     setLoadingSubmissions(true);
+    console.log("Loading submissions...");
     try {
       const snapshot = await getDocs(collection(db, "prefs_single"));
+      console.log("Snapshot size:", snapshot.size);
       const submissions = [];
       snapshot.forEach((doc) => {
+        console.log("Doc:", doc.id, doc.data());
         submissions.push({ id: doc.id, ...doc.data() });
       });
+      console.log("Total submissions loaded:", submissions.length);
       setAllSubmissions(submissions);
+      if (submissions.length === 0) {
+        alert("No submissions found yet.");
+      }
     } catch (e) {
       console.error("Failed to load submissions", e);
-      alert("Failed to load submissions");
+      console.error("Error details:", e.code, e.message);
+      alert("Failed to load submissions. Error: " + e.message);
     } finally {
       setLoadingSubmissions(false);
     }
@@ -707,29 +718,70 @@ export default function App() {
   };
 
   const submit = () => {
+    console.log("Submit clicked", { 
+      selected, 
+      rankingsCount: rankings.length, 
+      db: !!db,
+      uid,
+      authReady 
+    });
+    
+    if (!authReady) {
+      alert("Authentication in progress. Please wait a moment and try again.");
+      return;
+    }
+    
+    if (!uid) {
+      alert("Not authenticated. Please refresh the page and try again.");
+      return;
+    }
+    
     if (!selected) {
       alert("Log in with your code first.");
       return;
     }
+    
+    if (rankings.length === 0) {
+      alert("Please add at least one weekend to your rankings before submitting.");
+      return;
+    }
+    
+    if (!db) {
+      alert("Database connection not ready. Please wait a moment and try again.");
+      return;
+    }
+    
     setShowSubmitPrompt(true);
   };
+  
   const reallySubmit = async () => {
+    console.log("Really submitting", { selected, rankingsCount: rankings.length });
     if (!selected) return;
-    const payload = {
-      appId,
-      year: YEAR,
-      who: selected.name,
-      email: selected.email,
-      rankings: compressRanks(rankings),
-      ts: serverTimestamp(),
-    };
+    if (rankings.length === 0) {
+      alert("Please add at least one weekend to your rankings.");
+      return;
+    }
+    
     try {
-      await setDoc(doc(db, "prefs_single", `${YEAR}-${selected.name}`), payload);
+      const payload = {
+        appId,
+        year: YEAR,
+        who: selected.name,
+        email: selected.email,
+        rankings: compressRanks(rankings),
+        ts: serverTimestamp(),
+      };
+      
+      console.log("Submitting payload:", payload);
+      const docRef = doc(db, "prefs_single", `${YEAR}-${selected.name}`);
+      await setDoc(docRef, payload);
+      console.log("Submit successful");
       setShowSubmitPrompt(false);
-      alert("Saved to Firestore.");
+      alert("✅ Successfully submitted! Your preferences have been saved.");
     } catch (e) {
-      console.error(e);
-      alert("Failed to save.");
+      console.error("Submit error:", e);
+      console.error("Error details:", e.code, e.message);
+      alert("❌ Failed to save. Error: " + e.message + "\n\nPlease check the browser console and contact the admin.");
     }
   };
 
@@ -873,11 +925,7 @@ export default function App() {
                   ⚡ QuickAdd Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-				 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
-					<li>Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA)</li>
-					<li>Click "Add to Rankings" to add your selection</li>
-					 <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
-				</ol>
+                  Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA). Click "Add to Rankings" to add your selection.
                 </div>
               </div>
               <button 
@@ -1098,11 +1146,7 @@ export default function App() {
                   🎪 DragBuckets Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-				 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
-                  <li>Click any available weekend date to select a service (RNI or COA)</li>
-				  <li>Drag items in the right panel to reorder your preferences. Higher position = higher priority</li>
-				  <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
-				 </ol>
+                  Click any available weekend date to select a service (RNI or COA). Drag items in the right panel to reorder your preferences. Higher position = higher priority.
                 </div>
               </div>
               <button 
@@ -1311,7 +1355,16 @@ export default function App() {
         </div>
         <div className="content">
           <div className="main">
-            {!me ? (
+            {!authReady ? (
+              <div className="section">
+                <div className="section-head">
+                  <h3 className="section-title">Loading...</h3>
+                </div>
+                <div className="section-body">
+                  <p>Initializing authentication, please wait...</p>
+                </div>
+              </div>
+            ) : !me ? (
               <div className="section">
                 <div className="section-head">
                   <h3 className="section-title">Login</h3>
