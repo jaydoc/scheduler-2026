@@ -752,7 +752,12 @@ export default function App() {
                 📅 Calendar Mode Instructions
               </div>
               <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                Browse all weekends by month. Click "RNI → Rank" or "COA → Rank" buttons to add a weekend to your rankings. Already assigned weekends show the attending's name.
+                <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                  <li>Browse all weekends by month</li>
+                  <li>Click "RNI → Rank" or "COA → Rank" buttons to add a weekend to your rankings</li>
+                  <li>Already assigned weekends show the attending's name</li>
+                  <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+                </ol>
               </div>
             </div>
             <button 
@@ -808,7 +813,10 @@ export default function App() {
       </div>
       <div style={{ width: 300, flexShrink: 0 }}>
         <div style={{ position: "sticky", top: 20 }}>
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+          <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
+            Drag items to reorder (higher = more preferred)
+          </div>
           <ol className="preview-list">
             {compressRanks(rankings).map((r, idx) => (
               <li
@@ -917,7 +925,10 @@ export default function App() {
         </div>
         <div style={{ width: 300, flexShrink: 0 }}>
           <div style={{ position: "sticky", top: 20 }}>
-            <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+            <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
+              Drag items to reorder (higher = more preferred)
+            </div>
             <ol className="preview-list">
               {compressRanks(rankings).map((r, idx) => (
                 <li
@@ -962,7 +973,12 @@ export default function App() {
                 🎯 RankBoard Mode Instructions
               </div>
               <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                Similar to Calendar mode but with a focus on ranking. View all weekends and add them to your ranked preferences. Your current rank appears on each selected weekend.
+                <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                  <li>View all weekends in a calendar layout</li>
+                  <li>Click buttons to add weekends to your ranked preferences</li>
+                  <li>Your current rank appears on each selected weekend</li>
+                  <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+                </ol>
               </div>
             </div>
             <button 
@@ -1017,7 +1033,10 @@ export default function App() {
       </div>
       <div style={{ width: 300, flexShrink: 0 }}>
         <div style={{ position: "sticky", top: 20 }}>
-          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+          <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
+          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
+            Drag items to reorder (higher = more preferred)
+          </div>
           <ol className="preview-list">
             {compressRanks(rankings).map((r, idx) => (
               <li
@@ -1143,7 +1162,10 @@ export default function App() {
         </div>
         <div style={{ width: 300, flexShrink: 0 }}>
           <div style={{ position: "sticky", top: 20 }}>
-            <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+            <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
+              Drag items to reorder (higher = more preferred)
+            </div>
             <ol className="preview-list">
               {compressRanks(rankings).map((r, idx) => (
                 <li
