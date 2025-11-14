@@ -736,6 +736,34 @@ export default function App() {
   const CalendarMode = () => (
     <div style={{ display: "flex", gap: 20 }}>
       <div className="months" style={{ flex: 1 }}>
+        {dismissedInstructions[MODES.CAL] !== true && (
+          <div style={{ 
+            padding: 16, 
+            marginBottom: 16, 
+            background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+            borderRadius: 12, 
+            border: '1px solid #c7d2fe',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'start'
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                📅 Calendar Mode Instructions
+              </div>
+              <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                Browse all weekends by month. Click "RNI → Rank" or "COA → Rank" buttons to add a weekend to your rankings. Already assigned weekends show the attending's name.
+              </div>
+            </div>
+            <button 
+              className="btn-link" 
+              style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+              onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.CAL]: true }))}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {MONTH_KEYS.map((mk, i) => (
           <div key={mk} className="month">
             <div className="month-toggle">
@@ -821,6 +849,34 @@ export default function App() {
     return (
       <div style={{ display: "flex", gap: 20 }}>
         <div style={{ flex: 1 }}>
+          {dismissedInstructions[MODES.QA] !== true && (
+            <div style={{ 
+              padding: 16, 
+              marginBottom: 16, 
+              background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+              borderRadius: 12, 
+              border: '1px solid #c7d2fe',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'start'
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                  ⚡ QuickAdd Mode Instructions
+                </div>
+                <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                  Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA). Click "Add to Rankings" to add your selection.
+                </div>
+              </div>
+              <button 
+                className="btn-link" 
+                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.QA]: true }))}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div className="qa-layout">
             <div className="qa-form">
               <label>
@@ -890,6 +946,34 @@ export default function App() {
   const RankBoardMode = () => (
     <div style={{ display: "flex", gap: 20 }}>
       <div className="months" style={{ flex: 1 }}>
+        {dismissedInstructions[MODES.RB] !== true && (
+          <div style={{ 
+            padding: 16, 
+            marginBottom: 16, 
+            background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+            borderRadius: 12, 
+            border: '1px solid #c7d2fe',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'start'
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                🎯 RankBoard Mode Instructions
+              </div>
+              <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                Similar to Calendar mode but with a focus on ranking. View all weekends and add them to your ranked preferences. Your current rank appears on each selected weekend.
+              </div>
+            </div>
+            <button 
+              className="btn-link" 
+              style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+              onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.RB]: true }))}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {MONTH_KEYS.map((mk, i) => (
           <div key={mk} className="month">
             <div className="month-toggle">
@@ -975,6 +1059,34 @@ export default function App() {
     return (
       <div style={{ display: "flex", gap: 20 }}>
         <div className="dragbuckets" style={{ flex: 1 }}>
+          {dismissedInstructions[MODES.DB] !== true && (
+            <div style={{ 
+              padding: 16, 
+              marginBottom: 16, 
+              background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+              borderRadius: 12, 
+              border: '1px solid #c7d2fe',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'start'
+            }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                  🎪 DragBuckets Mode Instructions
+                </div>
+                <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                  Click any available weekend date to select a service (RNI or COA). Drag items in the right panel to reorder your preferences. Higher position = higher priority.
+                </div>
+              </div>
+              <button 
+                className="btn-link" 
+                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.DB]: true }))}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <div className="db-left">
             <div className="db-title">Available weekends</div>
             <div className="db-months">
