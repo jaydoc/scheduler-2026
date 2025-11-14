@@ -358,6 +358,9 @@ export default function App() {
   const [gateErr, setGateErr] = useState("");
 
   const selected = useMemo(() => ATTENDINGS.find((a) => a.name === me) || null, [me]);
+  
+  const [uid, setUid] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [mode, setMode] = useState(MODES.CAL);
   const [showLimits, setShowLimits] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
