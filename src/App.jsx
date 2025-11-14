@@ -628,8 +628,16 @@ export default function App() {
         <div style={{ position: "sticky", top: 20 }}>
           <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
           <ol className="preview-list">
-            {compressRanks(rankings).map((r) => (
-              <li key={`${r.date}-${r.service}`} className="preview-item">
+            {compressRanks(rankings).map((r, idx) => (
+              <li
+                key={`${r.date}-${r.service}`}
+                className="preview-item draggable-item"
+                draggable
+                onDragStart={onDragStartItem(idx)}
+                onDragOver={onDragOverItem(idx)}
+                onDrop={onDropItem(idx)}
+              >
+                <DragHandle />
                 <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
                 <button
                   className="btn-link"
@@ -731,8 +739,16 @@ export default function App() {
           <div style={{ position: "sticky", top: 20 }}>
             <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
             <ol className="preview-list">
-              {compressRanks(rankings).map((r) => (
-                <li key={`${r.date}-${r.service}`} className="preview-item">
+              {compressRanks(rankings).map((r, idx) => (
+                <li
+                  key={`${r.date}-${r.service}`}
+                  className="preview-item draggable-item"
+                  draggable
+                  onDragStart={onDragStartItem(idx)}
+                  onDragOver={onDragOverItem(idx)}
+                  onDrop={onDropItem(idx)}
+                >
+                  <DragHandle />
                   <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
                   <button
                     className="btn-link"
@@ -811,8 +827,16 @@ export default function App() {
         <div style={{ position: "sticky", top: 20 }}>
           <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
           <ol className="preview-list">
-            {compressRanks(rankings).map((r) => (
-              <li key={`${r.date}-${r.service}`} className="preview-item">
+            {compressRanks(rankings).map((r, idx) => (
+              <li
+                key={`${r.date}-${r.service}`}
+                className="preview-item draggable-item"
+                draggable
+                onDragStart={onDragStartItem(idx)}
+                onDragOver={onDragOverItem(idx)}
+                onDrop={onDropItem(idx)}
+              >
+                <DragHandle />
                 <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
                 <button
                   className="btn-link"
@@ -928,8 +952,16 @@ export default function App() {
           <div style={{ position: "sticky", top: 20 }}>
             <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
             <ol className="preview-list">
-              {compressRanks(rankings).map((r) => (
-                <li key={`${r.date}-${r.service}`} className="preview-item">
+              {compressRanks(rankings).map((r, idx) => (
+                <li
+                  key={`${r.date}-${r.service}`}
+                  className="preview-item draggable-item"
+                  draggable
+                  onDragStart={onDragStartItem(idx)}
+                  onDragOver={onDragOverItem(idx)}
+                  onDrop={onDropItem(idx)}
+                >
+                  <DragHandle />
                   <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
                   <button
                     className="btn-link"
@@ -1128,8 +1160,13 @@ export default function App() {
       {showSubmitPrompt && (
         <div className="modal-overlay">
           <div className="modal">
-            <h3>Ready to submit?</h3>
-            <p>Please download your CSV first to keep a copy of your preferences.</p>
+            <h3>Before you submit...</h3>
+            <p>Please follow these steps:</p>
+            <ol style={{ textAlign: "left", marginTop: 16, marginBottom: 16 }}>
+              <li style={{ marginBottom: 8 }}>Click "Download CSV" to save your preferences</li>
+              <li style={{ marginBottom: 8 }}>Open the CSV file and verify all your ranked weekends are correct</li>
+              <li style={{ marginBottom: 8 }}>If everything looks good, come back and click "Submit Now" below</li>
+            </ol>
             <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
               <button className="btn btn-green" onClick={reallySubmit}>
                 Submit Now
