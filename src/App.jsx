@@ -815,7 +815,7 @@ export default function App() {
         <div style={{ position: "sticky", top: 20 }}>
           <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
           <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-            Drag items to reorder (higher = more preferred)
+            Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
           </div>
           <ol className="preview-list">
             {compressRanks(rankings).map((r, idx) => (
@@ -873,11 +873,7 @@ export default function App() {
                   ⚡ QuickAdd Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-					<ol style={{ margin: '8px 0', paddingLeft: 20 }}>
-						<li> Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA)</li>
-						<li> Click "Add to Rankings" to add your selection</li>
-						<li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
-					</ol>
+                  Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA). Click "Add to Rankings" to add your selection.
                 </div>
               </div>
               <button 
@@ -931,7 +927,7 @@ export default function App() {
           <div style={{ position: "sticky", top: 20 }}>
             <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-              Drag items to reorder (higher = more preferred)
+              Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
             </div>
             <ol className="preview-list">
               {compressRanks(rankings).map((r, idx) => (
@@ -1039,7 +1035,7 @@ export default function App() {
         <div style={{ position: "sticky", top: 20 }}>
           <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
           <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-            Drag items to reorder (higher = more preferred)
+            Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
           </div>
           <ol className="preview-list">
             {compressRanks(rankings).map((r, idx) => (
@@ -1168,7 +1164,7 @@ export default function App() {
           <div style={{ position: "sticky", top: 20 }}>
             <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-              Drag items to reorder (higher = more preferred)
+              Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
             </div>
             <ol className="preview-list">
               {compressRanks(rankings).map((r, idx) => (
