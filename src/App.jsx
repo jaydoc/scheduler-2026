@@ -563,65 +563,90 @@ export default function App() {
   // ---- Modes implementations (Calendar / QuickAdd / RankBoard / DragBuckets) ----
   // Calendar
   const CalendarMode = () => (
-    <div className="months">
-      {MONTH_KEYS.map((mk, i) => (
-        <div key={mk} className="month">
-          <div className="month-toggle">
-            <span className="month-title">{MONTH_FULL[i]}</span>
+    <div style={{ display: "flex", gap: 20 }}>
+      <div className="months" style={{ flex: 1 }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <div key={mk} className="month">
+            <div className="month-toggle">
+              <span className="month-title">{MONTH_FULL[i]}</span>
+            </div>
+            <div className="days">
+              {months[mk].map((d) => {
+                const avail = getAvailableServicesForDate(d.date);
+                const already = rankings.find(r => r.date === d.date);
+                return (
+                  <div
+                    key={`${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`}
+                    className="day"
+                  >
+                    <div className="day-top">
+                      <span className="day-label">{d.day}</span>
+                      <span className="day-date">({fmtLabel(d.date)})</span>
+                    </div>
+                    {d.detail && <div className="day-detail">{d.detail}</div>}
+                    <div className="pill-row">
+                      {d.rni && (
+                        <Pill>RNI: {d.rni}</Pill>
+                      )}
+                      {d.coa && (
+                        <Pill>COA: {d.coa}</Pill>
+                      )}
+                      {d.isTaken && <Pill>Full weekend</Pill>}
+                      {already && (
+                        <Pill>Rank #{already.rank}</Pill>
+                      )}
+                    </div>
+                    <div className="svc-actions">
+                      {avail.includes(SERVICES.RNI) && (
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.RNI)}
+                        >
+                          RNI → Rank
+                        </button>
+                      )}
+                      {avail.includes(SERVICES.COA) && (
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.COA)}
+                        >
+                          COA → Rank
+                        </button>
+                      )}
+                      {avail.length === 0 && (
+                        <span className="pill pill-muted">Full</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="days">
-            {months[mk].map((d) => {
-              const avail = getAvailableServicesForDate(d.date);
-              const already = rankings.find(r => r.date === d.date);
-              return (
-                <div
-                  key={`${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`}
-                  className="day"
+        ))}
+      </div>
+      <div style={{ width: 300, flexShrink: 0 }}>
+        <div style={{ position: "sticky", top: 20 }}>
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+          <ol className="preview-list">
+            {compressRanks(rankings).map((r) => (
+              <li key={`${r.date}-${r.service}`} className="preview-item">
+                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                <button
+                  className="btn-link"
+                  onClick={() => remove(r.date, r.service)}
                 >
-                  <div className="day-top">
-                    <span className="day-label">{d.day}</span>
-                    <span className="day-date">({fmtLabel(d.date)})</span>
-                  </div>
-                  {d.detail && <div className="day-detail">{d.detail}</div>}
-                  <div className="pill-row">
-                    {d.rni && (
-                      <Pill>RNI: {d.rni}</Pill>
-                    )}
-                    {d.coa && (
-                      <Pill>COA: {d.coa}</Pill>
-                    )}
-                    {d.isTaken && <Pill>Full weekend</Pill>}
-                    {already && (
-                      <Pill>Rank #{already.rank}</Pill>
-                    )}
-                  </div>
-                  <div className="svc-actions">
-                    {avail.includes(SERVICES.RNI) && (
-                      <button
-                        className="btn btn-svc"
-                        onClick={() => add(d.date, SERVICES.RNI)}
-                      >
-                        RNI → Rank
-                      </button>
-                    )}
-                    {avail.includes(SERVICES.COA) && (
-                      <button
-                        className="btn btn-svc"
-                        onClick={() => add(d.date, SERVICES.COA)}
-                      >
-                        COA → Rank
-                      </button>
-                    )}
-                    {avail.length === 0 && (
-                      <span className="pill pill-muted">Full</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  remove
+                </button>
+              </li>
+            ))}
+            {rankings.length === 0 && (
+              <li className="preview-item">
+                <span className="muted">No preferences yet.</span>
+              </li>
+            )}
+          </ol>
         </div>
-      ))}
+      </div>
     </div>
   );
 
@@ -639,120 +664,172 @@ export default function App() {
       : null;
 
     return (
-      <div className="qa-layout">
-        <div className="qa-form">
-          <label>
-            Month
-            <select
-              className="qa-select"
-              value={mkey}
-              onChange={e => setMkey(e.target.value)}
-            >
-              {MONTH_KEYS.map((mk, idx) => (
-                <option key={mk} value={mk}>
-                  {MONTH_FULL[idx]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Saturday
-            <select
-              className="qa-select"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-            >
-              <option value="">Pick Saturday</option>
-              {saturdays.map(d => (
-                <option key={d.date} value={d.date}>
-                  {d.day} — {fmtLabel(d.date)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Service
-            <select
-              className="qa-select"
-              value={service}
-              onChange={e => setService(e.target.value)}
-              disabled={!date}
-            >
-              <option value="">Pick service</option>
-              {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI}>RNI</option>}
-              {avail.includes(SERVICES.COA) && <option value={SERVICES.COA}>COA</option>}
-            </select>
-          </label>
-          <button
-            className="btn btn-green"
-            disabled={!date || !service}
-            onClick={() => {
-              add(date, service);
-            }}
-          >
-            Add to Rankings
-          </button>
-        </div>
-        {chosen && (
-          <div className="qa-note">
-            You are adding: <b>{fmtLabel(chosen.date)}</b> — <b>{service}</b>
+      <div style={{ display: "flex", gap: 20 }}>
+        <div style={{ flex: 1 }}>
+          <div className="qa-layout">
+            <div className="qa-form">
+              <label>
+                Month
+                <select
+                  className="qa-select"
+                  value={mkey}
+                  onChange={e => setMkey(e.target.value)}
+                >
+                  {MONTH_KEYS.map((mk, idx) => (
+                    <option key={mk} value={mk}>
+                      {MONTH_FULL[idx]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Saturday
+                <select
+                  className="qa-select"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                >
+                  <option value="">Pick Saturday</option>
+                  {saturdays.map(d => (
+                    <option key={d.date} value={d.date}>
+                      {d.day} — {fmtLabel(d.date)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Service
+                <select
+                  className="qa-select"
+                  value={service}
+                  onChange={e => setService(e.target.value)}
+                  disabled={!date}
+                >
+                  <option value="">Pick service</option>
+                  {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI}>RNI</option>}
+                  {avail.includes(SERVICES.COA) && <option value={SERVICES.COA}>COA</option>}
+                </select>
+              </label>
+              <button
+                className="btn btn-green"
+                disabled={!date || !service}
+                onClick={() => {
+                  add(date, service);
+                }}
+              >
+                Add to Rankings
+              </button>
+            </div>
+            {chosen && (
+              <div className="qa-note">
+                You are adding: <b>{fmtLabel(chosen.date)}</b> — <b>{service}</b>
+              </div>
+            )}
           </div>
-        )}
+        </div>
+        <div style={{ width: 300, flexShrink: 0 }}>
+          <div style={{ position: "sticky", top: 20 }}>
+            <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+            <ol className="preview-list">
+              {compressRanks(rankings).map((r) => (
+                <li key={`${r.date}-${r.service}`} className="preview-item">
+                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                  <button
+                    className="btn-link"
+                    onClick={() => remove(r.date, r.service)}
+                  >
+                    remove
+                  </button>
+                </li>
+              ))}
+              {rankings.length === 0 && (
+                <li className="preview-item">
+                  <span className="muted">No preferences yet.</span>
+                </li>
+              )}
+            </ol>
+          </div>
+        </div>
       </div>
     );
   };
 
   // RankBoard (click inside calendar-style grid)
   const RankBoardMode = () => (
-    <div className="months">
-      {MONTH_KEYS.map((mk, i) => (
-        <div key={mk} className="month">
-          <div className="month-toggle">
-            <span className="month-title">{MONTH_FULL[i]}</span>
+    <div style={{ display: "flex", gap: 20 }}>
+      <div className="months" style={{ flex: 1 }}>
+        {MONTH_KEYS.map((mk, i) => (
+          <div key={mk} className="month">
+            <div className="month-toggle">
+              <span className="month-title">{MONTH_FULL[i]}</span>
+            </div>
+            <div className="days">
+              {months[mk].map((d) => {
+                const avail = getAvailableServicesForDate(d.date);
+                const r = rankings.find(x => x.date === d.date);
+                return (
+                  <div key={d.date} className="day">
+                    <div className="day-top">
+                      <span className="day-label">{d.day}</span>
+                      <span className="day-date">({fmtLabel(d.date)})</span>
+                    </div>
+                    {d.detail && <div className="day-detail">{d.detail}</div>}
+                    <div className="pill-row">
+                      {d.rni && <Pill>RNI: {d.rni}</Pill>}
+                      {d.coa && <Pill>COA: {d.coa}</Pill>}
+                      {r && <Pill>Rank #{r.rank}</Pill>}
+                    </div>
+                    <div className="svc-actions">
+                      {avail.includes(SERVICES.RNI) && (
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.RNI)}
+                        >
+                          RNI → Rank
+                        </button>
+                      )}
+                      {avail.includes(SERVICES.COA) && (
+                        <button
+                          className="btn btn-svc"
+                          onClick={() => add(d.date, SERVICES.COA)}
+                        >
+                          COA → Rank
+                        </button>
+                      )}
+                      {avail.length === 0 && (
+                        <span className="pill pill-muted">Full</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-          <div className="days">
-            {months[mk].map((d) => {
-              const avail = getAvailableServicesForDate(d.date);
-              const r = rankings.find(x => x.date === d.date);
-              return (
-                <div key={d.date} className="day">
-                  <div className="day-top">
-                    <span className="day-label">{d.day}</span>
-                    <span className="day-date">({fmtLabel(d.date)})</span>
-                  </div>
-                  {d.detail && <div className="day-detail">{d.detail}</div>}
-                  <div className="pill-row">
-                    {d.rni && <Pill>RNI: {d.rni}</Pill>}
-                    {d.coa && <Pill>COA: {d.coa}</Pill>}
-                    {r && <Pill>Rank #{r.rank}</Pill>}
-                  </div>
-                  <div className="svc-actions">
-                    {avail.includes(SERVICES.RNI) && (
-                      <button
-                        className="btn btn-svc"
-                        onClick={() => add(d.date, SERVICES.RNI)}
-                      >
-                        RNI → Rank
-                      </button>
-                    )}
-                    {avail.includes(SERVICES.COA) && (
-                      <button
-                        className="btn btn-svc"
-                        onClick={() => add(d.date, SERVICES.COA)}
-                      >
-                        COA → Rank
-                      </button>
-                    )}
-                    {avail.length === 0 && (
-                      <span className="pill pill-muted">Full</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        ))}
+      </div>
+      <div style={{ width: 300, flexShrink: 0 }}>
+        <div style={{ position: "sticky", top: 20 }}>
+          <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+          <ol className="preview-list">
+            {compressRanks(rankings).map((r) => (
+              <li key={`${r.date}-${r.service}`} className="preview-item">
+                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                <button
+                  className="btn-link"
+                  onClick={() => remove(r.date, r.service)}
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+            {rankings.length === 0 && (
+              <li className="preview-item">
+                <span className="muted">No preferences yet.</span>
+              </li>
+            )}
+          </ol>
         </div>
-      ))}
+      </div>
     </div>
   );
 
@@ -781,70 +858,95 @@ export default function App() {
     const remaining = availableChips.filter(c => !chosenKeys.has(c.date));
 
     return (
-      <div className="dragbuckets">
-        <div className="db-left">
-          <div className="db-title">Available weekends</div>
-          <div className="db-months">
-            {MONTH_KEYS.map((mk, idx) => (
-              <div className="db-month" key={mk}>
-                <div className="db-month-title">{MONTH_FULL[idx]}</div>
-                <div className="db-chip-row">
-                  {months[mk].map(d => {
-                    if (chosenKeys.has(d.date)) return null;
-                    const key = d.date;
-                    return (
-                      <button
-                        key={key}
-                        className="db-chip"
-                        onClick={(e) => openPopover(e, d.date)}
-                      >
-                        {fmtLabel(d.date)}
-                      </button>
-                    );
-                  })}
+      <div style={{ display: "flex", gap: 20 }}>
+        <div className="dragbuckets" style={{ flex: 1 }}>
+          <div className="db-left">
+            <div className="db-title">Available weekends</div>
+            <div className="db-months">
+              {MONTH_KEYS.map((mk, idx) => (
+                <div className="db-month" key={mk}>
+                  <div className="db-month-title">{MONTH_FULL[idx]}</div>
+                  <div className="db-chip-row">
+                    {months[mk].map(d => {
+                      if (chosenKeys.has(d.date)) return null;
+                      const key = d.date;
+                      return (
+                        <button
+                          key={key}
+                          className="db-chip"
+                          onClick={(e) => openPopover(e, d.date)}
+                        >
+                          {fmtLabel(d.date)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </div>
+          <div className="db-right">
+            <div className="db-title">Drag to re-order your ranked weekends</div>
+            <ol className="preview-list">
+              {compressRanks(rankings).map((r, idx) => (
+                <li
+                  key={`${r.date}-${r.service}`}
+                  className="preview-item draggable-item"
+                  draggable
+                  onDragStart={onDragStartItem(idx)}
+                  onDragOver={onDragOverItem(idx)}
+                  onDrop={onDropItem(idx)}
+                >
+                  <DragHandle />
+                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                  <button
+                    className="btn-link"
+                    onClick={() => remove(r.date, r.service)}
+                  >
+                    remove
+                  </button>
+                </li>
+              ))}
+              {rankings.length === 0 && (
+                <li className="preview-item">
+                  <span className="muted">No ranked weekends yet. Click a date to pick a service.</span>
+                </li>
+              )}
+            </ol>
+          </div>
+          {popover && (
+            <InlineServicePopover
+              x={popover.x}
+              y={popover.y}
+              date={popover.date}
+              onPick={onPickService}
+              onClose={closePopover}
+            />
+          )}
+        </div>
+        <div style={{ width: 300, flexShrink: 0 }}>
+          <div style={{ position: "sticky", top: 20 }}>
+            <h4 style={{ marginTop: 0, marginBottom: 12 }}>Your Rankings</h4>
+            <ol className="preview-list">
+              {compressRanks(rankings).map((r) => (
+                <li key={`${r.date}-${r.service}`} className="preview-item">
+                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                  <button
+                    className="btn-link"
+                    onClick={() => remove(r.date, r.service)}
+                  >
+                    remove
+                  </button>
+                </li>
+              ))}
+              {rankings.length === 0 && (
+                <li className="preview-item">
+                  <span className="muted">No preferences yet.</span>
+                </li>
+              )}
+            </ol>
           </div>
         </div>
-        <div className="db-right">
-          <div className="db-title">Drag to re-order your ranked weekends</div>
-          <ol className="preview-list">
-            {compressRanks(rankings).map((r, idx) => (
-              <li
-                key={`${r.date}-${r.service}`}
-                className="preview-item draggable-item"
-                draggable
-                onDragStart={onDragStartItem(idx)}
-                onDragOver={onDragOverItem(idx)}
-                onDrop={onDropItem(idx)}
-              >
-                <DragHandle />
-                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                <button
-                  className="btn-link"
-                  onClick={() => remove(r.date, r.service)}
-                >
-                  remove
-                </button>
-              </li>
-            ))}
-            {rankings.length === 0 && (
-              <li className="preview-item">
-                <span className="muted">No ranked weekends yet. Click a date to pick a service.</span>
-              </li>
-            )}
-          </ol>
-        </div>
-        {popover && (
-          <InlineServicePopover
-            x={popover.x}
-            y={popover.y}
-            date={popover.date}
-            onPick={onPickService}
-            onClose={closePopover}
-          />
-        )}
       </div>
     );
   };
@@ -1015,35 +1117,6 @@ export default function App() {
                     {mode === MODES.QA && <QuickAddMode />}
                     {mode === MODES.RB && <RankBoardMode />}
                     {mode === MODES.DB && <DragBucketsMode />}
-                  </div>
-                </div>
-
-                <div className="section">
-                  <div className="section-head">
-                    <h3 className="section-title">Your ranked preferences</h3>
-                    <button className="btn-link" onClick={clearAll}>
-                      Clear all
-                    </button>
-                  </div>
-                  <div className="section-body">
-                    <ol className="preview-list">
-                      {compressRanks(rankings).map((r) => (
-                        <li key={`${r.date}-${r.service}`} className="preview-item">
-                          <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                          <button
-                            className="btn-link"
-                            onClick={() => remove(r.date, r.service)}
-                          >
-                            remove
-                          </button>
-                        </li>
-                      ))}
-                      {rankings.length === 0 && (
-                        <li className="preview-item">
-                          <span className="muted">No preferences yet. Use the modes above to select weekends.</span>
-                        </li>
-                      )}
-                    </ol>
                   </div>
                 </div>
               </>
