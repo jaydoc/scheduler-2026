@@ -497,6 +497,52 @@
   color: #9ca3af;
 }
 
+/* NEW: grid for DragBucketsMode so bucket is to the right */
+.drag-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+}
+
+/* NEW: chip group wrappers used in DragBucketsMode */
+.chip-group {
+  margin-bottom: 8px;
+}
+.chip-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4b5563;
+  margin-bottom: 4px;
+}
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* NEW: rankings bucket panel used in DragBucketsMode */
+.bucket {
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  padding: 8px;
+}
+.bucket-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 6px;
+}
+.bucket-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bucket-item {
+  /* core layout comes from inline styles in JSX; keep this minimal */
+}
+
 /* “Who” panel */
 .id-row {
   display: flex;
@@ -605,6 +651,9 @@ button {
     grid-template-columns: 1fr;
   }
   .drag-layout {
+    grid-template-columns: 1fr;
+  }
+  .drag-grid {
     grid-template-columns: 1fr;
   }
   .live-columns {
