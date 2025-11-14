@@ -201,7 +201,7 @@ const months = {
     { day: "12", date: "2026-12-12", rni: null, coa: null },
     { day: "19", date: "2026-12-19", rni: "Travers", coa: "Kandasamy", isTaken: true },
     { day: "24-28", date: "2026-12-24", rni: "Bhatia", coa: "Arora", isTaken: true, detail: "Christmas" },
-    { day: "31-Jan 4", date: "2026-12-31", rni: "Kane", coa: "Kandasamy", isTaken: true, detail: "New Year’s Eve" },
+    { day: "31-Jan 4", date: "2026-12-31", rni: "Kane", coa: "Kandasamy", isTaken: true, detail: "New Year's Eve" },
   ],
 };
 
@@ -761,7 +761,6 @@ export default function App() {
     const [popover, setPopover] = useState(null); // {x,y,date} | null
     const openPopover = (e, date) => {
       const rect = e.currentTarget.getBoundingClientRect();
-      // *** Only change: anchor pop-up right next to the clicked date chip ***
       setPopover({ x: rect.left, y: rect.bottom, date });
     };
     const closePopover = () => setPopover(null);
@@ -924,7 +923,7 @@ export default function App() {
       </div>
       {gateErr && <div className="error">{gateErr}</div>}
       <div className="muted">
-        Tip: you’ll see your name locked in after verification.
+        Tip: you'll see your name locked in after verification.
       </div>
     </div>
   );
@@ -971,4 +970,104 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    <div className="section-body">
+                      <div className="limits-summary">
+                        <div className="limit-item">
+                          <span className="limit-label">Requested weekends:</span>
+                          <span className="limit-value">{limitsSummary.requested}</span>
+                        </div>
+                        <div className="limit-item">
+                          <span className="limit-label">Already claimed:</span>
+                          <span className="limit-value">{limitsSummary.claimed}</span>
+                        </div>
+                        <div className="limit-item">
+                          <span className="limit-label">Left to fill:</span>
+                          <span className="limit-value">{limitsSummary.left}</span>
+                        </div>
+                        <div className="limit-item">
+                          <span className="limit-label">Currently ranked:</span>
+                          <span className="limit-value">{limitsSummary.chosenNow}</span>
+                        </div>
+                      </div>
+                      {alreadyAssigned.length > 0 && (
+                        <div className="assigned-list">
+                          <div className="assigned-title">Your already assigned shifts:</div>
+                          <ul>
+                            {alreadyAssigned.map((a, i) => (
+                              <li key={i}>
+                                {fmtLabel(a.date)} — {a.service}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="section">
+                  <div className="section-head">
+                    <h3 className="section-title">Select weekends</h3>
+                  </div>
+                  <div className="section-body">
+                    <ModeTabs />
+                    {mode === MODES.CAL && <CalendarMode />}
+                    {mode === MODES.QA && <QuickAddMode />}
+                    {mode === MODES.RB && <RankBoardMode />}
+                    {mode === MODES.DB && <DragBucketsMode />}
+                  </div>
+                </div>
+
+                <div className="section">
+                  <div className="section-head">
+                    <h3 className="section-title">Your ranked preferences</h3>
+                    <button className="btn-link" onClick={clearAll}>
+                      Clear all
+                    </button>
+                  </div>
+                  <div className="section-body">
+                    <ol className="preview-list">
+                      {compressRanks(rankings).map((r) => (
+                        <li key={`${r.date}-${r.service}`} className="preview-item">
+                          <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                          <button
+                            className="btn-link"
+                            onClick={() => remove(r.date, r.service)}
+                          >
+                            remove
+                          </button>
+                        </li>
+                      ))}
+                      {rankings.length === 0 && (
+                        <li className="preview-item">
+                          <span className="muted">No preferences yet. Use the modes above to select weekends.</span>
+                        </li>
+                      )}
+                    </ol>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showSubmitPrompt && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Ready to submit?</h3>
+            <p>Please download your CSV first to keep a copy of your preferences.</p>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn btn-green" onClick={reallySubmit}>
+                Submit Now
+              </button>
+              <button className="btn" onClick={() => setShowSubmitPrompt(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
