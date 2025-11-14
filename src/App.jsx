@@ -873,7 +873,11 @@ export default function App() {
                   ⚡ QuickAdd Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                  Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA). Click "Add to Rankings" to add your selection.
+				 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+					<li>Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA)</li>
+					<li>Click "Add to Rankings" to add your selection</li>
+					 <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+				</ol>
                 </div>
               </div>
               <button 
@@ -1094,7 +1098,11 @@ export default function App() {
                   🎪 DragBuckets Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                  Click any available weekend date to select a service (RNI or COA). Drag items in the right panel to reorder your preferences. Higher position = higher priority.
+				 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                  <li>Click any available weekend date to select a service (RNI or COA)</li>
+				  <li>Drag items in the right panel to reorder your preferences. Higher position = higher priority</li>
+				  <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+				 </ol>
                 </div>
               </div>
               <button 
