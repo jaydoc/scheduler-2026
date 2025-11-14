@@ -360,6 +360,12 @@ export default function App() {
   const selected = useMemo(() => ATTENDINGS.find((a) => a.name === me) || null, [me]);
   const [mode, setMode] = useState(MODES.CAL);
   const [showLimits, setShowLimits] = useState(false);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [allSubmissions, setAllSubmissions] = useState([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [allocatedSchedule, setAllocatedSchedule] = useState(null);
+  const [showAllocationModal, setShowAllocationModal] = useState(false);
+  const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
   const [{ rankings }, dispatch] = useReducer(reducer, initialState);
 
   const dragIndex = useRef(null);
@@ -699,7 +705,6 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
   const submit = () => {
     if (!selected) {
       alert("Log in with your code first.");
