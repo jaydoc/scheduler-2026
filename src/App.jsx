@@ -366,6 +366,7 @@ export default function App() {
   const [allocatedSchedule, setAllocatedSchedule] = useState(null);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
   const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
+  const [dismissedInstructions, setDismissedInstructions] = useState({});
   const [{ rankings }, dispatch] = useReducer(reducer, initialState);
 
   const dragIndex = useRef(null);
