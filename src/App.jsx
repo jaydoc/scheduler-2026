@@ -22,6 +22,7 @@ import {
   doc,
   setDoc,
   serverTimestamp,
+  getDoc,
 } from "firebase/firestore";
 
 const LOCAL_FALLBACK = {
@@ -78,7 +79,7 @@ const ATTENDINGS = [
   { name: "Vivian", email: "vvalcarceluaces@uabmc.edu" },
 ];
 
-/* One-time login codes (you asked for these previously) */
+/* One-time login codes */
 const ATTENDING_CODES = {
   "nambalav@uab.edu": "UAB26-7KQ2T9",
   "nitinarora@uabmc.edu": "UAB26-M3ZP5H",
@@ -121,17 +122,6 @@ const ATTENDING_LIMITS = {
   Vivian: { requested: 0, claimed: 0, left: 2 },
   Carlo: { requested: 5, claimed: 5, left: 0 },
 };
-
-/* Modes */
-const MODES = {
-  CAL: "Calendar",
-  QA: "QuickAdd",
-  RB: "RankBoard",
-  DB: "DragBuckets",
-};
-
-/* Admin email */
-const ADMIN_EMAIL = "jkandasamy@uabmc.edu";
 
 /* =========================================================
    CALENDAR DATA (source of "already assigned shifts")
@@ -248,6 +238,69 @@ function compressRanks(list) {
 }
 
 /* =========================================================
+   PILL + DRAG HANDLE
+========================================================= */
+const Pill = ({children}) => <span className="pill">{children}</span>;
+
+const DragHandle = () => (
+  <span className="drag-handle" aria-hidden="true" title="Drag to reorder">
+    <span className="dot-row">
+      <span className="dot" /><span className="dot" />
+    </span>
+    <span className="dot-row">
+      <span className="dot" /><span className="dot" />
+    </span>
+  </span>
+);
+
+/* Simple inline popover used by DragBuckets to pick a service near cursor */
+function InlineServicePopover({ x, y, date, onPick, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (ref.current &&
+          !ref.current.contains(e.target)) {
+        onClose();
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [onClose]);
+
+  const avail = getAvailableServicesForDate(date);
+  return (
+    <div
+      ref={ref}
+      style={{
+        position:"fixed", top: y + 8, left: x + 8, zIndex: 9999,
+        background:"#fff", border:"1px solid #e5e7eb", borderRadius: 10,
+        padding: 8, boxShadow:"0 10px 30px rgba(0,0,0,0.12)"
+      }}
+    >
+      <div style={{
+        fontWeight:700, fontSize:12, marginBottom:6}}>
+        {fmtLabel(date)} — Pick service
+      </div>
+      <div style={{display:"flex", gap:8}}>
+        {avail.includes(SERVICES.RNI) && (
+          <button className="btn btn-green" onClick={() => onPick(SERVICES.RNI)}>RNI</button>
+        )}
+        {avail.includes(SERVICES.COA) && (
+          <button className="btn btn-blue" onClick={() => onPick(SERVICES.COA)}>COA</button>
+        )}
+      </div>
+      <button
+        className="btn-link"
+        style={{marginTop:4, fontSize:11}}
+        onClick={onClose}
+      >
+        cancel
+      </button>
+    </div>
+  );
+}
+
+/* =========================================================
    SINGLE-BUCKET PREFERENCES STATE (rank #1 = MOST preferred)
 ========================================================= */
 const initialState = { rankings: [] }; // [{date, service, rank}]
@@ -256,60 +309,79 @@ function reducer(state, action) {
   switch (action.type) {
     case "add": {
       const { date, service } = action;
-      if (!service) return state;
-      if (state.rankings.some(r => r.date === date)) return state; // block both services on same weekend
-      if (state.rankings.some(r => r.date === date && r.service === service)) return state;
-      const next = [...state.rankings, { date, service, rank: (state.rankings.length + 1) }];
+      if (!date || !service) return state;
+
+      // Enforce: cannot pick both services for the same date.
+      const filtered = state.rankings.filter((x) => x.date !== date);
+
+      // Already have exact (date, service)?
+      if (state.rankings.some((x) => x.date === date && x.service === service)) {
+        return state;
+      }
+
+      const next = [
+        ...filtered,
+        { date, service, rank: (filtered.length ? Math.max(...filtered.map(y => y.rank)) : 0) + 1 },
+      ];
       return { rankings: compressRanks(next) };
     }
+
     case "remove": {
-      const next = state.rankings.filter(r => !(r.date === action.date && r.service === action.service));
+      const { date, service } = action;
+      const next = state.rankings.filter(
+        (x) => !(x.date === date && x.service === service)
+      );
       return { rankings: compressRanks(next) };
     }
+
     case "reorder": {
       const { fromIndex, toIndex } = action;
-      if (fromIndex === toIndex) return state;
-      // Work on the visibly ordered list so indices line up with what the user sees
       const arr = compressRanks(state.rankings);
-      if (fromIndex < 0 || fromIndex >= arr.length || toIndex < 0 || toIndex >= arr.length) return state;
-      const [moved] = arr.splice(fromIndex, 1);
-      arr.splice(toIndex, 0, moved);
-      // Re-number ranks in the new order (1..N)
-      const renumbered = arr.map((x, i) => ({ ...x, rank: i + 1 }));
-      return { rankings: renumbered };
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= arr.length ||
+        toIndex >= arr.length
+      ) {
+        return state;
+      }
+      const moved = arr[fromIndex];
+      const rest = arr.filter((_, i) => i !== fromIndex);
+      rest.splice(toIndex, 0, moved);
+      const renum = rest.map((x, i) => ({ ...x, rank: i + 1 }));
+      return { rankings: renum };
     }
+
     case "clear":
       return initialState;
+
+    case "load_from_draft": {
+      const list = Array.isArray(action.rankings) ? action.rankings : [];
+      const cleaned = list.filter(x => x && x.date && x.service);
+      return { rankings: compressRanks(cleaned) };
+    }
+
     default:
       return state;
   }
 }
 
 /* =========================================================
-   Small atoms
-========================================================= */
-const Pill = ({children}) => <span className="pill">{children}</span>;
-
-const DragHandle = () => (
-  <span
-    style={{
-      width: 18, height: 22, display:"inline-flex", alignItems:"center",
-      justifyContent:"center", marginRight: 8, cursor:"grab", color:"#94a3b8",
-      userSelect:"none"
-    }}
-  >
-    ⋮⋮
-  </span>
-);
-
-/* =========================================================
    MAIN APP
 ========================================================= */
+const MODES = {
+  CAL: "calendar",
+  QA:  "quick",
+  RB:  "rank",
+  DB:  "drag",
+};
+
 export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), []);
   const auth = useMemo(() => getAuth(app), [app]);
-  const db = useMemo(() => getFirestore(app), [app]);
+  const db   = useMemo(() => getFirestore(app), [app]);
 
+  // Auth (anon)
   const [uid, setUid] = useState(null);
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
@@ -322,84 +394,100 @@ export default function App() {
   // Login gate via codes
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode] = useState("");
-  const [me, setMe] = useState("");
-  const [gateErr, setGateErr] = useState("");
+  const [me, setMe]             = useState("");
+  const [gateErr, setGateErr]   = useState("");
 
   const selected = useMemo(
     () => ATTENDINGS.find((a) => a.name === me) || null,
     [me]
   );
 
-  // Admin flag (unchanged)
-  const isAdmin = useMemo(() => {
-    const selectedEmail = selected?.email;
-    try {
-      const q = new URLSearchParams(window.location.search);
-      return q.get("admin") === "1" && selectedEmail === ADMIN_EMAIL;
-    } catch {
-      return false;
-    }
-  }, [selected]);
+  const [mode, setMode] = useState(MODES.CAL);
 
-  // Modes
-  const [mode, setMode] = useState(MODES.RB);
+  // ATTENDING_LIMITS panel visibility
+  const [showLimits, setShowLimits] = useState(false);
 
-  // Rankings state (single list)
+  // Single-bucket ranking state
   const [{ rankings }, dispatch] = useReducer(reducer, initialState);
 
-  const add = useCallback((date, service) => dispatch({ type: "add", date, service }), []);
-  const remove = useCallback((date, service) => dispatch({ type: "remove", date, service }), []);
-  const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
-
-  // ---- Drag & drop reorder (ONLY for rankings list) ----
+  // Drag context for robust reorder
   const dragIndex = useRef(null);
-  const onDragStartItem = (i) => (e) => {
-    dragIndex.current = i;
-    e.dataTransfer.effectAllowed = "move";
+  const onDragStartItem = (index) => () => {
+    dragIndex.current = index;
   };
-  const onDragOverItem = (i) => (e) => {
-    e.preventDefault(); // required for drop to fire
-    e.dataTransfer.dropEffect = "move";
-  };
-  const onDropItem = (i) => (e) => {
+  const onDragOverItem = (index) => (e) => {
     e.preventDefault();
+  };
+  const onDropItem = (index) => () => {
     const from = dragIndex.current;
-    const to = i;
-    if (from != null && to != null) {
-      dispatch({ type: "reorder", fromIndex: from, toIndex: to });
-    }
+    const to   = index;
+    if (from == null || from === to) return;
+    dispatch({ type: "reorder", fromIndex: from, toIndex: to });
     dragIndex.current = null;
   };
 
-  // Calendar collapse state
-  const [openMonths, setOpenMonths] = useState(() => new Set(MONTH_KEYS));
+  // --- Persistent drafts: load from Firestore when name is set ---
+  useEffect(() => {
+    if (!db || !selected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const ref = doc(db, "prefs_draft", `${YEAR}-${selected.name}`);
+        const snap = await getDoc(ref);
+        if (!snap.exists() || cancelled) return;
+        const data = snap.data();
+        if (Array.isArray(data.rankings)) {
+          dispatch({ type: "load_from_draft", rankings: data.rankings });
+        }
+      } catch (e) {
+        console.error("Failed to load draft", e);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [db, selected]);
 
-  const toggleMonth = (mk) => {
-    setOpenMonths(prev => {
-      const next = new Set(prev);
-      if (next.has(mk)) next.delete(mk);
-      else next.add(mk);
-      return next;
-    });
-  };
+  // --- Persistent drafts: save whenever rankings change ---
+  useEffect(() => {
+    if (!db || !selected) return;
+    (async () => {
+      try {
+        const ref = doc(db, "prefs_draft", `${YEAR}-${selected.name}`);
+        await setDoc(ref, { rankings, ts: serverTimestamp() }, { merge: true });
+      } catch (e) {
+        console.error("Failed to save draft", e);
+      }
+    })();
+  }, [db, selected, rankings]);
+
+  // Add helpers
+  const add = useCallback((date, service) => {
+    const avail = getAvailableServicesForDate(date);
+    if (!avail.includes(service)) return;
+    dispatch({ type: "add", date, service });
+  }, []);
+
+  const remove = useCallback((date, service) => {
+    dispatch({ type: "remove", date, service });
+  }, []);
+
+  const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
 
   // Build list of already-assigned shifts for the logged-in attending from months[]
   const alreadyAssigned = useMemo(() => {
-    if (!me) return [];
+    if (!selected) return [];
     const out = [];
     for (const mk of MONTH_KEYS) {
       for (const d of months[mk]) {
-        if (d.rni === me) out.push({ date: d.date, service: "RNI" });
-        if (d.coa === me) out.push({ date: d.date, service: "COA" });
+        if (d.rni === selected.name) out.push({ date: d.date, service: "RNI" });
+        if (d.coa === selected.name) out.push({ date: d.date, service: "COA" });
       }
     }
-    return out.sort((a, b) => (a.date < b.date ? -1 : 1));
-  }, [me]);
+    return out.sort((a,b) => a.date.localeCompare(b.date));
+  }, [selected]);
 
-  // Limits summary
   const limitsSummary = useMemo(() => {
-    if (!me) return null;
-    const lim = ATTENDING_LIMITS[me];
+    if (!selected) return null;
+    const lim = ATTENDING_LIMITS[selected.name];
     if (!lim) return null;
     return {
       requested: lim.requested,
@@ -407,26 +495,34 @@ export default function App() {
       left: lim.left,
       chosenNow: rankings.length,
     };
-  }, [me, rankings.length]);
+  }, [selected, rankings.length]);
 
-  // CSV download (unchanged)
+  // CSV download
   const downloadCSV = () => {
-    if (!selected) { alert("Verify your name/code first."); return; }
-    const rows = compressRanks(rankings).map(r => ({
-      name: selected.name,
-      date: r.date,
-      service: r.service,
-      rank: r.rank
-    }));
+    if (!selected) {
+      alert("Verify your name/code first.");
+      return;
+    }
+    const rows = [];
+    const ordered = compressRanks(rankings);
+    for (const r of ordered) {
+      rows.push({
+        name: selected.name,
+        date: r.date,
+        service: r.service,
+        rank: r.rank,
+      });
+    }
     const headers = ["name","date","service","rank"];
     const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = [
       headers.join(","),
       ...rows.map(r => headers.map(h => esc(r[h])).join(","))
     ].join("\n");
+
     const blob = new Blob([csv], { type:"text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
     a.href = url;
     a.download = `${YEAR}-${selected.name}-preferences.csv`;
     document.body.appendChild(a);
@@ -435,9 +531,9 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  // Submit flow: ask to download CSV & verify first, then proceed
+  // Submit flow: prompt to download/verify CSV first
   const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
-  const submit = async () => {
+  const submit = () => {
     if (!selected) {
       alert("Log in with your code first.");
       return;
@@ -464,269 +560,336 @@ export default function App() {
     }
   };
 
-  /* ---------- Modes ---------- */
-
-  function CalendarMode() {
-    const chosenDates = new Set(rankings.map(r => r.date));
-    return (
-      <div className="months">
-        {MONTH_KEYS.map((mk, i) => {
-          const isOpen = openMonths.has(mk);
-          return (
-            <section key={mk} className="month">
-              <button className="month-toggle" onClick={()=> toggleMonth(mk)}>
-                <span className="month-title">{MONTH_FULL[i]}</span>
-                <span className="month-chevron">{isOpen ? "▾" : "▸"}</span>
-              </button>
-              {isOpen && (
-                <div className="days">
-                  {months[mk].map((d) => {
-                    const avail = getAvailableServicesForDate(d.date);
-                    const alreadyHasThisDate = chosenDates.has(d.date);
-                    const block = d.isTaken || avail.length === 0;
-                    return (
-                      <div key={d.date} className="day">
-                        <div className="day-top">
-                          <span className="day-label">{d.day}</span>
-                          <span className="day-date">({fmtLabel(d.date)})</span>
-                        </div>
-                        {d.detail && <div className="day-detail">{d.detail}</div>}
-                        <div className="svc-actions">
-                          {avail.includes(SERVICES.RNI) && (
-                            <button className="btn btn-svc" disabled={block} onClick={()=> add(d.date, SERVICES.RNI)}>
-                              RNI → Rank
-                            </button>
-                          )}
-                          {avail.includes(SERVICES.COA) && (
-                            <button className="btn btn-svc" disabled={block} onClick={()=> add(d.date, SERVICES.COA)}>
-                              COA → Rank
-                            </button>
-                          )}
-                          {avail.length === 0 && <Pill>Full</Pill>}
-                          {alreadyHasThisDate && <Pill>Picked</Pill>}
-                        </div>
-                      </div>
-                    );
-                  })}
+  // ---- Modes implementations (Calendar / QuickAdd / RankBoard / DragBuckets) ----
+  // Calendar
+  const CalendarMode = () => (
+    <div className="months">
+      {MONTH_KEYS.map((mk, i) => (
+        <div key={mk} className="month">
+          <div className="month-toggle">
+            <span className="month-title">{MONTH_FULL[i]}</span>
+          </div>
+          <div className="days">
+            {months[mk].map((d) => {
+              const avail = getAvailableServicesForDate(d.date);
+              const already = rankings.find(r => r.date === d.date);
+              return (
+                <div
+                  key={`${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`}
+                  className="day"
+                >
+                  <div className="day-top">
+                    <span className="day-label">{d.day}</span>
+                    <span className="day-date">({fmtLabel(d.date)})</span>
+                  </div>
+                  {d.detail && <div className="day-detail">{d.detail}</div>}
+                  <div className="pill-row">
+                    {d.rni && (
+                      <Pill>RNI: {d.rni}</Pill>
+                    )}
+                    {d.coa && (
+                      <Pill>COA: {d.coa}</Pill>
+                    )}
+                    {d.isTaken && <Pill>Full weekend</Pill>}
+                    {already && (
+                      <Pill>Rank #{already.rank}</Pill>
+                    )}
+                  </div>
+                  <div className="svc-actions">
+                    {avail.includes(SERVICES.RNI) && (
+                      <button
+                        className="btn btn-svc"
+                        onClick={() => add(d.date, SERVICES.RNI)}
+                      >
+                        RNI → Rank
+                      </button>
+                    )}
+                    {avail.includes(SERVICES.COA) && (
+                      <button
+                        className="btn btn-svc"
+                        onClick={() => add(d.date, SERVICES.COA)}
+                      >
+                        COA → Rank
+                      </button>
+                    )}
+                    {avail.length === 0 && (
+                      <span className="pill pill-muted">Full</span>
+                    )}
+                  </div>
                 </div>
-              )}
-            </section>
-          );
-        })}
-      </div>
-    );
-  }
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 
-  function QuickAddMode() {
+  // QuickAdd
+  const QuickAddMode = () => {
     const [mkey, setMkey] = useState("01");
     const [date, setDate] = useState("");
     const [service, setService] = useState("");
     const saturdays = months[mkey];
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
+    const avail = date ? getAvailableServicesForDate(date) : [];
 
-    const onAdd = () => {
-      if (!date || !service) return;
-      add(date, service);
-    };
+    const chosen = date && service
+      ? { date, service }
+      : null;
 
     return (
-      <div className="quickadd">
-        <div className="qa-row">
-          <label>Month</label>
-          <select value={mkey} onChange={(e)=> setMkey(e.target.value)}>
-            {MONTH_KEYS.map((mk, i) => (
-              <option key={mk} value={mk}>{MONTH_FULL[i]}</option>
-            ))}
-          </select>
+      <div className="qa-layout">
+        <div className="qa-form">
+          <label>
+            Month
+            <select
+              className="qa-select"
+              value={mkey}
+              onChange={e => setMkey(e.target.value)}
+            >
+              {MONTH_KEYS.map((mk, idx) => (
+                <option key={mk} value={mk}>
+                  {MONTH_FULL[idx]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Saturday
+            <select
+              className="qa-select"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+            >
+              <option value="">Pick Saturday</option>
+              {saturdays.map(d => (
+                <option key={d.date} value={d.date}>
+                  {d.day} — {fmtLabel(d.date)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Service
+            <select
+              className="qa-select"
+              value={service}
+              onChange={e => setService(e.target.value)}
+              disabled={!date}
+            >
+              <option value="">Pick service</option>
+              {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI}>RNI</option>}
+              {avail.includes(SERVICES.COA) && <option value={SERVICES.COA}>COA</option>}
+            </select>
+          </label>
+          <button
+            className="btn btn-green"
+            disabled={!date || !service}
+            onClick={() => {
+              add(date, service);
+            }}
+          >
+            Add to Rankings
+          </button>
         </div>
-        <div className="qa-row">
-          <label>Saturday</label>
-          <select value={date} onChange={(e)=> setDate(e.target.value)}>
-            <option value="">— pick a Saturday —</option>
-            {saturdays.map(d => (
-              <option key={d.date} value={d.date}>
-                {d.day} ({fmtLabel(d.date)})
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="qa-row">
-          <label>Service</label>
-          <select value={service} onChange={(e)=> setService(e.target.value)}>
-            <option value="">— choose —</option>
-            {getAvailableServicesForDate(date).map(svc => (
-              <option key={svc} value={svc}>{svc}</option>
-            ))}
-          </select>
-        </div>
-        <div className="qa-row right">
-          <button className="btn btn-green" onClick={onAdd}>Add to rankings</button>
-        </div>
+        {chosen && (
+          <div className="qa-note">
+            You are adding: <b>{fmtLabel(chosen.date)}</b> — <b>{service}</b>
+          </div>
+        )}
       </div>
     );
-  }
+  };
 
-  function RankBoardMode() {
-    const chosenDates = new Set(rankings.map(r => r.date));
-    return (
-      <div className="rankboard">
-        {MONTH_KEYS.map((mk, i) => (
-          <section key={mk} className="rb-month">
-            <div className="rb-month-title">{MONTH_FULL[i]}</div>
-            <div className="rb-days">
-              {months[mk].map(d => {
-                const avail = getAvailableServicesForDate(d.date);
-                const alreadyHasThisDate = chosenDates.has(d.date);
-                const block = d.isTaken || avail.length === 0;
-                return (
-                  <div key={d.date} className="rb-day">
-                    <div className="rb-top">
-                      <span>{d.day}</span>
-                      <span className="rb-date">({fmtLabel(d.date)})</span>
-                    </div>
-                    {d.detail && <div className="rb-detail">{d.detail}</div>}
-                    <div className="rb-actions">
-                      {avail.map(svc => (
-                        <button
-                          key={svc}
-                          className="btn btn-svc-sm"
-                          disabled={block}
-                          onClick={()=> add(d.date, svc)}
-                        >
-                          {svc} → Rank
-                        </button>
-                      ))}
-                      {avail.length === 0 && <Pill>Full</Pill>}
-                      {alreadyHasThisDate && <Pill>Picked</Pill>}
-                    </div>
+  // RankBoard (click inside calendar-style grid)
+  const RankBoardMode = () => (
+    <div className="months">
+      {MONTH_KEYS.map((mk, i) => (
+        <div key={mk} className="month">
+          <div className="month-toggle">
+            <span className="month-title">{MONTH_FULL[i]}</span>
+          </div>
+          <div className="days">
+            {months[mk].map((d) => {
+              const avail = getAvailableServicesForDate(d.date);
+              const r = rankings.find(x => x.date === d.date);
+              return (
+                <div key={d.date} className="day">
+                  <div className="day-top">
+                    <span className="day-label">{d.day}</span>
+                    <span className="day-date">({fmtLabel(d.date)})</span>
                   </div>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
-    );
-  }
-
-  function InlineServicePopover({ x, y, date, onPick, onClose }) {
-    if (!date) return null;
-    const avail = getAvailableServicesForDate(date);
-    if (avail.length <= 1) return null;
-    return (
-      <div className="popover" style={{ top: y, left: x }}>
-        <div className="popover-title">Pick service</div>
-        <div className="popover-body">
-          {avail.map(svc => (
-            <button key={svc} className="btn btn-svc" onClick={()=> onPick(svc)}>
-              {svc}
-            </button>
-          ))}
-          <button className="btn-link" onClick={onClose}>cancel</button>
+                  {d.detail && <div className="day-detail">{d.detail}</div>}
+                  <div className="pill-row">
+                    {d.rni && <Pill>RNI: {d.rni}</Pill>}
+                    {d.coa && <Pill>COA: {d.coa}</Pill>}
+                    {r && <Pill>Rank #{r.rank}</Pill>}
+                  </div>
+                  <div className="svc-actions">
+                    {avail.includes(SERVICES.RNI) && (
+                      <button
+                        className="btn btn-svc"
+                        onClick={() => add(d.date, SERVICES.RNI)}
+                      >
+                        RNI → Rank
+                      </button>
+                    )}
+                    {avail.includes(SERVICES.COA) && (
+                      <button
+                        className="btn btn-svc"
+                        onClick={() => add(d.date, SERVICES.COA)}
+                      >
+                        COA → Rank
+                      </button>
+                    )}
+                    {avail.length === 0 && (
+                      <span className="pill pill-muted">Full</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
-    );
-  }
+      ))}
+    </div>
+  );
 
-  function DragBucketsMode() {
-    // Inline popover for service selection near pointer
-    const [pop, setPop] = useState(null); // { x, y, date }
-    const chosenDates = new Set(rankings.map(r => r.date));
-    const groups = MONTH_KEYS.map((mk, i) => ({
-      key: mk,
-      title: MONTH_FULL[i],
-      items: months[mk].filter(d => !d.isTaken && !chosenDates.has(d.date))
-    }));
-
-    const onDragStartChip = (date) => (e) => {
-      e.dataTransfer.setData("text/plain", date);
-      e.dataTransfer.effectAllowed = "move";
+  // DragBuckets
+  const DragBucketsMode = () => {
+    const [popover, setPopover] = useState(null); // {x,y,date} | null
+    const openPopover = (e, date) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      // *** Only change: anchor pop-up right next to the clicked date chip ***
+      setPopover({ x: rect.left, y: rect.bottom, date });
     };
-    const onDropIntoRankings = (e) => {
-      e.preventDefault();
-      const date = e.dataTransfer.getData("text/plain");
-      if (!date) return;
-      const avail = getAvailableServicesForDate(date);
-      if (avail.length > 1) {
-        setPop({ x: e.clientX, y: e.clientY, date });
-      } else if (avail.length === 1) {
-        add(date, avail[0]);
+    const closePopover = () => setPopover(null);
+
+    const onPickService = (svc) => {
+      if (!popover) return;
+      add(popover.date, svc);
+      setPopover(null);
+    };
+
+    const availableChips = [];
+    for (const mk of MONTH_KEYS) {
+      for (const d of months[mk]) {
+        availableChips.push({ date: d.date });
       }
-    };
+    }
+    const chosenKeys = new Set(rankings.map(r => `${r.date}`));
+    const remaining = availableChips.filter(c => !chosenKeys.has(c.date));
 
     return (
-      <div className="drag-grid">
-        <div>
-          {groups.map(g => (
-            <div key={g.key} className="chip-group">
-              <div className="chip-title">{g.title}</div>
-              <div className="chip-row">
-                {g.items.map(d => (
-                  <div
-                    key={d.date}
-                    draggable
-                    onDragStart={onDragStartChip(d.date)}
-                    className="chip"
-                    title="Drag into Rankings"
-                  >
-                    {fmtLabel(d.date)}
-                  </div>
-                ))}
+      <div className="dragbuckets">
+        <div className="db-left">
+          <div className="db-title">Available weekends</div>
+          <div className="db-months">
+            {MONTH_KEYS.map((mk, idx) => (
+              <div className="db-month" key={mk}>
+                <div className="db-month-title">{MONTH_FULL[idx]}</div>
+                <div className="db-chip-row">
+                  {months[mk].map(d => {
+                    if (chosenKeys.has(d.date)) return null;
+                    const key = d.date;
+                    return (
+                      <button
+                        key={key}
+                        className="db-chip"
+                        onClick={(e) => openPopover(e, d.date)}
+                      >
+                        {fmtLabel(d.date)}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-
-        {/* Rankings bucket (drop target) */}
-        <div
-          className="bucket"
-          onDragOver={(e)=> { e.preventDefault(); e.dataTransfer.dropEffect="move"; }}
-          onDrop={onDropIntoRankings}
-        >
-          <div className="bucket-title">Rankings (drag to reorder)</div>
-          <ol className="bucket-list">
+        <div className="db-right">
+          <div className="db-title">Drag to re-order your ranked weekends</div>
+          <ol className="preview-list">
             {compressRanks(rankings).map((r, idx) => (
               <li
                 key={`${r.date}-${r.service}`}
-                className="bucket-item"
+                className="preview-item draggable-item"
                 draggable
                 onDragStart={onDragStartItem(idx)}
                 onDragOver={onDragOverItem(idx)}
                 onDrop={onDropItem(idx)}
-                style={{
-                  display:"flex", alignItems:"center", gap: 8, padding:"8px 6px",
-                  border:"1px solid #e5e7eb", borderRadius: 10, marginBottom: 6, background:"#fff"
-                }}
-                title="Drag to reorder"
               >
-                <DragHandle/>
-                <span style={{fontWeight:700, minWidth: 28}}>#{r.rank}</span>
-                <span style={{flex:1}}>{fmtLabel(r.date)} ({r.service})</span>
-                <button className="btn-link" onClick={()=> remove(r.date, r.service)}>remove</button>
+                <DragHandle />
+                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+                <button
+                  className="btn-link"
+                  onClick={() => remove(r.date, r.service)}
+                >
+                  remove
+                </button>
               </li>
             ))}
+            {rankings.length === 0 && (
+              <li className="preview-item">
+                <span className="muted">No ranked weekends yet. Click a date to pick a service.</span>
+              </li>
+            )}
           </ol>
         </div>
-
-        {pop && (
+        {popover && (
           <InlineServicePopover
-            x={pop.x}
-            y={pop.y}
-            date={pop.date}
-            onPick={(svc)=> { add(pop.date, svc); setPop(null); }}
-            onClose={()=> setPop(null)}
+            x={popover.x}
+            y={popover.y}
+            date={popover.date}
+            onPick={onPickService}
+            onClose={closePopover}
           />
         )}
       </div>
     );
-  }
+  };
 
-  /* ---------- Topbar + Right pane ---------- */
+  // ---- Command-style mode switcher ----
+  const ModeTabs = () => (
+    <div className="mode-tabs">
+      <button
+        className={mode === MODES.CAL ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.CAL)}
+      >
+        Calendar
+      </button>
+      <button
+        className={mode === MODES.QA ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.QA)}
+      >
+        QuickAdd
+      </button>
+      <button
+        className={mode === MODES.RB ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.RB)}
+      >
+        RankBoard
+      </button>
+      <button
+        className={mode === MODES.DB ? "tab active" : "tab"}
+        onClick={() => setMode(MODES.DB)}
+      >
+        DragBuckets
+      </button>
+    </div>
+  );
+
+  // Login panel
   const loginPanel = (
     <div className="login">
       <div className="login-title">Enter your one-time code</div>
       <div className="id-row">
-        <select className="id-select" value={gateEmail} onChange={(e)=> setGateEmail(e.target.value)}>
+        <select
+          className="id-select"
+          value={gateEmail}
+          onChange={(e) => setGateEmail(e.target.value)}
+        >
           <option value="">Select your name</option>
           {ATTENDINGS.map((a) => (
             <option key={a.email} value={a.email}>
@@ -738,7 +901,7 @@ export default function App() {
           className="id-select"
           placeholder="Paste code (e.g., UAB26-XXXXXX)"
           value={gateCode}
-          onChange={(e)=> setGateCode(e.target.value.trim())}
+          onChange={(e) => setGateCode(e.target.value.trim())}
         />
         <button
           className="btn btn-green"
@@ -753,6 +916,7 @@ export default function App() {
             const att = ATTENDINGS.find((a) => a.email === gateEmail);
             setGateErr("");
             setMe(att.name);
+            setShowLimits(true);
           }}
         >
           Verify & Continue
@@ -769,174 +933,41 @@ export default function App() {
     <div className="page">
       <div className="band" />
       <div className="container">
-        <header className="topbar">
+        <div className="topbar">
           <div className="topbar-inner">
             <div className="section-title">UAB/COA Weekend Attending Scheduler 2026</div>
             <div className="spacer" />
             <span className="badge">{firebaseConfig.projectId}</span>
-            <button className="btn" onClick={submit}>Submit</button>
-            <button className="btn btn-green" onClick={downloadCSV}>Download CSV</button>
+            <button className="btn" onClick={submit}>
+              Submit
+            </button>
+            <button className="btn btn-green" onClick={downloadCSV}>
+              Download CSV
+            </button>
           </div>
-        </header>
+        </div>
 
         <div className="content">
-          <main className="main">
+          <div className="main">
             {!me ? (
-              <section className="section">
+              <div className="section">
                 <div className="section-head">
                   <h3 className="section-title">Login</h3>
                 </div>
                 <div className="section-body">{loginPanel}</div>
-              </section>
+              </div>
             ) : (
               <>
-                <section className="section">
-                  <div className="section-head">
-                    <h3 className="section-title">Your targets & current assignments</h3>
-                  </div>
-                  <div className="section-body">
-                    {limitsSummary && (
-                      <div className="muted" style={{marginBottom:8}}>
-                        Requested: <b>{limitsSummary.requested}</b> · Claimed (assigned):{" "}
-                        <b>{limitsSummary.claimed}</b> · Left:{" "}
-                        <b>{limitsSummary.left}</b> · You’ve ranked now:{" "}
-                        <b>{limitsSummary.chosenNow}</b>
+                {showLimits && limitsSummary && (
+                  <div className="section">
+                    <div className="section-head">
+                      <h3 className="section-title">Your targets & current assignments</h3>
+                      <div className="section-right">
+                        <button
+                          className="btn btn-amber"
+                          onClick={() => setShowLimits(false)}
+                        >
+                          OK
+                        </button>
                       </div>
-                    )}
-                    <div>
-                      <div style={{fontWeight:600, marginBottom:4}}>Already assigned to you (from calendar):</div>
-                      <ul style={{margin:0, paddingLeft:18}}>
-                        {alreadyAssigned.length === 0 && <li>None yet.</li>}
-                        {alreadyAssigned.map((x) => (
-                          <li key={`${x.date}-${x.service}`}>
-                            {fmtLabel(x.date)} — {x.service}
-                          </li>
-                        ))}
-                      </ul>
                     </div>
-                  </div>
-                </section>
-
-                <section className="section">
-                  <div className="section-head">
-                    <h3 className="section-title">Modes</h3>
-                  </div>
-                  <div className="section-body modes-row">
-                    {Object.entries(MODES).map(([key, label]) => (
-                      <button
-                        key={key}
-                        className={
-                          "mode-pill" + (mode === label ? " mode-pill-active" : "")
-                        }
-                        onClick={()=> setMode(label)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="section">
-                  <div className="section-head">
-                    <h3 className="section-title">{mode}</h3>
-                  </div>
-                  <div className="section-body">
-                    {mode === MODES.CAL && <CalendarMode />}
-                    {mode === MODES.QA && <QuickAddMode />}
-                    {mode === MODES.RB && <RankBoardMode />}
-                    {mode === MODES.DB && <DragBucketsMode />}
-                  </div>
-                </section>
-              </>
-            )}
-          </main>
-
-          {/* Rankings (single bucket) — with robust drag-to-reorder */}
-          <aside className="side">
-            <section className="section">
-              <div className="section-head">
-                <h3 className="section-title">Rankings (#1 = most preferred)</h3>
-                <div className="section-right">
-                  <button className="btn-link" onClick={clearAll}>Clear all</button>
-                </div>
-              </div>
-              <div className="section-body">
-                <ol className="preview-list">
-                  {compressRanks(rankings).map((x, i) => (
-                    <li
-                      key={`${x.date}-${x.service}`}
-                      className="preview-item draggable-item"
-                      draggable
-                      onDragStart={onDragStartItem(i)}
-                      onDragOver={onDragOverItem(i)}
-                      onDrop={onDropItem(i)}
-                      title="Drag to reorder"
-                    >
-                      <DragHandle/>
-                      <span>#{x.rank} — {fmtLabel(x.date)} ({x.service})</span>
-                      <button
-                        className="btn-link"
-                        onClick={() => remove(x.date, x.service)}
-                      >
-                        remove
-                      </button>
-                    </li>
-                  ))}
-                  {rankings.length === 0 && (
-                    <li className="preview-item">
-                      <span className="muted">No preferences yet. Add from any mode.</span>
-                    </li>
-                  )}
-                </ol>
-              </div>
-            </section>
-
-            {/* Who (locked after login) */}
-            <section className="section">
-              <div className="section-head">
-                <h3 className="section-title">Who</h3>
-              </div>
-              <div className="section-body">
-                <div className="id-row">
-                  <select className="id-select" value={me} onChange={(e)=> setMe(e.target.value)} disabled>
-                    {
-                      ATTENDINGS.map((a) => (
-                        <option key={a.email} value={a.name}>
-                          {a.name}
-                        </option>
-                      ))
-                    }
-                  </select>
-                  {me && (
-                    <span className="muted">
-                      {ATTENDINGS.find((a) => a.name === me)?.email}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </section>
-          </aside>
-        </div>
-      </div>
-      <div className="band" />
-
-      {/* Submit prompt (download CSV & verify first) */}
-      {showSubmitPrompt && (
-        <div className="modal">
-          <div className="modal-card">
-            <div className="modal-title">Review before submitting</div>
-            <p style={{marginTop:8}}>
-              Please <b>download your CSV</b> and quickly verify that your name, dates,
-              services, and ranks are correct.
-            </p>
-            <div className="row right gap" style={{marginTop:8}}>
-              <button className="btn" onClick={() => setShowSubmitPrompt(false)}>Cancel</button>
-              <button className="btn" onClick={downloadCSV}>Download CSV</button>
-              <button className="btn btn-green" onClick={reallySubmit}>Submit to Firestore</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
