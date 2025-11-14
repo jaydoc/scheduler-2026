@@ -1,4 +1,60 @@
-import React, {
+/* Preview list (rankings sidebar) */
+.preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.preview-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #fafbfc 0%, #f8fafc 100%);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+.preview-item:hover {
+  background: #ffffff;
+  border-color: #667eea;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.12);
+  transform: translateX(4px);
+}
+.draggable-item {
+  cursor: move;
+}
+.draggable-item:active {
+  opacity: 0.7;
+  cursor: grabbing;
+}
+
+/* Drag handle */
+.drag-handle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: grab;
+  padding: 2px;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+.drag-handle:hover {
+  opacity: 0.8;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.dot-row {
+  display: flex;
+  gap: 2px;
+}
+.dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #64748b;
+}import React, {
   useCallback,
   useEffect,
   useMemo,
