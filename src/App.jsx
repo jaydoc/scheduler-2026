@@ -62,7 +62,7 @@ const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 
 const ATTENDINGS = [
-  { name: "Ambal", fullName: "Namasivayam Ambalavanan", email: "nambalav@uab.edu" },
+  { name: "Ambal", fullName: "Namasivayam Ambalavanan", email: "nambalav@uabmc.edu" },
   { name: "Arora", fullName: "Nitin Arora", email: "nitinarora@uabmc.edu" },
   { name: "Bhatia", fullName: "Kulsajan Bhatia", email: "ksbhatia@uabmc.edu" },
   { name: "Boone", fullName: "Neal Boone", email: "nboone@uabmc.edu" },
@@ -70,7 +70,7 @@ const ATTENDINGS = [
   { name: "Jain", fullName: "Viral Jain", email: "viraljain@uabmc.edu" },
   { name: "Kandasamy", fullName: "Jegen Kandasamy", email: "jkandasamy@uabmc.edu", isAdmin: true },
   { name: "Kane", fullName: "Andrea Kane", email: "akane@uabmc.edu" },
-  { name: "Mackay", fullName: "Amy Mackay", email: "mackay@uabmc.edu" },
+  { name: "Mackay", fullName: "Amy Mackay", email: "amysessions@uabmc.edu" },
   { name: "Schuyler", fullName: "Amelia Schuyler", email: "aschuyler@uabmc.edu" },
   { name: "Shukla", fullName: "Vivek Shukla", email: "vshukla@uabmc.edu" },
   { name: "Sims", fullName: "Brian Sims", email: "bsims@uabmc.edu" },
@@ -83,7 +83,7 @@ const ATTENDINGS = [
 ];
 
 const ATTENDING_CODES = {
-  "nambalav@uab.edu": "UAB26-7KQ2T9",
+  "nambalav@uabmc.edu": "UAB26-7KQ2T9",
   "nitinarora@uabmc.edu": "UAB26-M3ZP5H",
   "ksbhatia@uabmc.edu": "UAB26-X8D4N2",
   "nboone@uabmc.edu": "UAB26-R6C9JW",
@@ -91,7 +91,7 @@ const ATTENDING_CODES = {
   "viraljain@uabmc.edu": "UAB26-HT5M8A",
   "jkandasamy@uabmc.edu": "UAB26-B9Y3KC",
   "akane@uabmc.edu": "UAB26-W4N6UE",
-  "mackay@uabmc.edu": "UAB26-J2F8RD",
+  "amysessions@uabmc.edu": "UAB26-J2F8RD",
   "aschuyler@uabmc.edu": "UAB26-Z7T3LM",
   "vshukla@uabmc.edu": "UAB26-Q5R9BX",
   "bsims@uabmc.edu": "UAB26-N6V2PG",
