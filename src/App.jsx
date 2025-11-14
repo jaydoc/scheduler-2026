@@ -8,9 +8,6 @@ import React, {
 } from "react";
 import "./App.css";
 
-/* =========================================================
-   FIREBASE (keeps your original fallbacks & window fallback)
-========================================================= */
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -55,9 +52,6 @@ const appId =
     ? __app_id
     : "attending-scheduler-v-single-rank-1.0";
 
-/* =========================================================
-   CONSTANTS / DATA
-========================================================= */
 const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 
@@ -341,17 +335,10 @@ const MODES = {
 export default function App() {
   const app = useMemo(() => initializeApp(firebaseConfig), []);
   const auth = useMemo(() => getAuth(app), [app]);
-  const db   = useMemo(() => getFirestore(app), [app]);
+  const db = useMemo(() => getFirestore(app), [app]);
 
-  const [uid, setUid] = useState(null);
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) setUid(user.uid);
-      else signInAnonymously(auth).catch(() => {});
-    });
-    return () => unsub();
-  }, [auth]);
-
+  const [userUid, setUserUid] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [gateEmail, setGateEmail] = useState("");
   const [gateCode, setGateCode] = useState("");
   const [me, setMe] = useState("");
@@ -359,8 +346,6 @@ export default function App() {
 
   const selected = useMemo(() => ATTENDINGS.find((a) => a.name === me) || null, [me]);
   
-  const [uid, setUid] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
   const [mode, setMode] = useState(MODES.CAL);
   const [showLimits, setShowLimits] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
@@ -382,6 +367,29 @@ export default function App() {
     dispatch({ type: "reorder", fromIndex: from, toIndex: to });
     dragIndex.current = null;
   };
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        console.log("User authenticated:", user.uid);
+        setUserUid(user.uid);
+        setAuthReady(true);
+      } else {
+        console.log("No user, signing in anonymously...");
+        signInAnonymously(auth)
+          .then((result) => {
+            console.log("Anonymous sign-in successful:", result.user.uid);
+            setUserUid(result.user.uid);
+            setAuthReady(true);
+          })
+          .catch((error) => {
+            console.error("Anonymous sign-in failed:", error);
+            setAuthReady(true);
+          });
+      }
+    });
+    return () => unsub();
+  }, [auth]);
 
   useEffect(() => {
     if (!db || !selected) return;
@@ -426,7 +434,6 @@ export default function App() {
 
   const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
 
-  // Admin functions
   const loadAllSubmissions = async () => {
     if (!db) {
       alert("Database not ready");
@@ -508,21 +515,18 @@ export default function App() {
     }
   };
 
-  // Fair allocation algorithm
   const runAllocationAlgorithm = () => {
     if (allSubmissions.length === 0) {
       alert("No submissions to allocate");
       return;
     }
 
-    // Build preference map: {attendingName: [{date, service, rank}, ...]}
     const preferenceMap = {};
     allSubmissions.forEach((sub) => {
       const rankings = Array.isArray(sub.rankings) ? sub.rankings : [];
       preferenceMap[sub.who] = rankings.sort((a, b) => a.rank - b.rank);
     });
 
-    // Get all slots that need filling
     const slotsToFill = [];
     for (const mk of MONTH_KEYS) {
       for (const d of months[mk]) {
@@ -531,26 +535,20 @@ export default function App() {
       }
     }
 
-    // Track assignments: {attendingName: count}
     const assignmentCounts = {};
     ATTENDINGS.forEach((a) => {
       assignmentCounts[a.name] = ATTENDING_LIMITS[a.name]?.claimed || 0;
     });
 
-    // Final schedule
     const schedule = {};
-
-    // Algorithm: Process each slot, assign to the person with highest preference who can take it
     const usedSlots = new Set();
     
-    // Sort attendings by how many slots they still need (those needing more get priority)
     const sortedAttendings = [...ATTENDINGS].sort((a, b) => {
       const aNeeded = (ATTENDING_LIMITS[a.name]?.requested || 0) - assignmentCounts[a.name];
       const bNeeded = (ATTENDING_LIMITS[b.name]?.requested || 0) - assignmentCounts[b.name];
       return bNeeded - aNeeded;
     });
 
-    // Iterate multiple rounds to ensure fair distribution
     let maxRounds = 50;
     let round = 0;
     
@@ -567,18 +565,15 @@ export default function App() {
         
         const prefs = preferenceMap[name] || [];
         
-        // Find their highest-ranked available preference
         for (const pref of prefs) {
           const slotKey = `${pref.date}-${pref.service}`;
           if (usedSlots.has(slotKey)) continue;
           
-          // Check if this slot is actually available
           const isAvailable = slotsToFill.some(
             (s) => s.date === pref.date && s.service === pref.service
           );
           if (!isAvailable) continue;
           
-          // Assign this slot
           if (!schedule[pref.date]) schedule[pref.date] = {};
           schedule[pref.date][pref.service] = name;
           usedSlots.add(slotKey);
@@ -592,7 +587,6 @@ export default function App() {
       round++;
     }
 
-    // Check for unfilled slots
     const unfilledSlots = slotsToFill.filter((slot) => {
       const slotKey = `${slot.date}-${slot.service}`;
       return !usedSlots.has(slotKey);
@@ -725,7 +719,7 @@ export default function App() {
       selected, 
       rankingsCount: rankings.length, 
       db: !!db,
-      uid,
+      userUid,
       authReady 
     });
     
@@ -734,7 +728,7 @@ export default function App() {
       return;
     }
     
-    if (!uid) {
+    if (!userUid) {
       alert("Not authenticated. Please refresh the page and try again.");
       return;
     }
@@ -928,7 +922,13 @@ export default function App() {
                   ⚡ QuickAdd Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                  Use the dropdown menus to quickly select a month, Saturday, and service (RNI or COA). Click "Add to Rankings" to add your selection.
+                  <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                    <li>Use the dropdown menus to select a month</li>
+                    <li>Pick a Saturday from the available dates</li>
+                    <li>Choose a service (RNI or COA)</li>
+                    <li>Click "Add to Rankings" to add your selection</li>
+                    <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+                  </ol>
                 </div>
               </div>
               <button 
@@ -1149,7 +1149,12 @@ export default function App() {
                   🎪 DragBuckets Mode Instructions
                 </div>
                 <div style={{ fontSize: 13, color: '#5b21b6' }}>
-                  Click any available weekend date to select a service (RNI or COA). Drag items in the right panel to reorder your preferences. Higher position = higher priority.
+                  <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                    <li>Click any available weekend date to select a service (RNI or COA)</li>
+                    <li>Drag items in either panel to reorder your preferences</li>
+                    <li>#1 = most preferred, #2 = less preferred, etc.</li>
+                    <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+                  </ol>
                 </div>
               </div>
               <button 
@@ -1383,8 +1388,6 @@ export default function App() {
                     </div>
                     <div className="section-body">
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                        
-                        {/* View All Submissions */}
                         <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
                           <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📊 View All Submissions</h4>
                           <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
@@ -1422,7 +1425,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Analytics Dashboard */}
                         <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
                           <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📈 Analytics</h4>
                           {allSubmissions.length > 0 ? (
@@ -1451,7 +1453,6 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* Run Allocation Algorithm */}
                         <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
                           <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>🎯 Run Fair Allocation</h4>
                           <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
@@ -1465,7 +1466,6 @@ export default function App() {
                             Run Allocation Algorithm
                           </button>
                         </div>
-
                       </div>
                     </div>
                   </div>
@@ -1511,6 +1511,7 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
                 <div className="section">
                   <div className="section-head">
                     <h3 className="section-title">Select weekends</h3>
@@ -1528,12 +1529,29 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {showSubmitPrompt && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Before you submit...</h3>
+            <p>Please follow these steps:</p>
+            <ol style={{ textAlign: "left", marginTop: 16, marginBottom: 16 }}>
+              <li style={{ marginBottom: 8 }}>Click "Download CSV" to save your preferences</li>
+              <li style={{ marginBottom: 8 }}>Open the CSV file and verify all your ranked weekends are correct</li>
+              <li style={{ marginBottom: 8 }}>If everything looks good, come back and click "Submit Now" below</li>
+            </ol>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn btn-green" onClick={reallySubmit}>Submit Now</button>
+              <button className="btn" onClick={() => setShowSubmitPrompt(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAllocationModal && allocatedSchedule && (
         <div className="modal-overlay">
           <div className="modal" style={{ width: 'min(800px, 90vw)', maxHeight: '90vh', overflow: 'auto' }}>
             <h3>🎯 Allocation Results</h3>
-            
-            {/* Stats */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
               <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, textAlign: 'center' }}>
                 <div style={{ fontSize: 24, fontWeight: 800, color: '#15803d' }}>
@@ -1555,7 +1573,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Assignment counts per attending */}
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Assignments per Attending:</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, fontSize: 12 }}>
@@ -1570,7 +1587,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Unfilled slots */}
             {allocatedSchedule.unfilledSlots.length > 0 && (
               <div style={{ marginBottom: 20, padding: 12, background: '#fef3c7', borderRadius: 8 }}>
                 <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: '#92400e' }}>
@@ -1586,7 +1602,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Schedule preview */}
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Schedule Preview:</h4>
               <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, fontSize: 12 }}>
