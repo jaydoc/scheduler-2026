@@ -23,6 +23,9 @@ import {
   setDoc,
   serverTimestamp,
   getDoc,
+  collection,
+  getDocs,
+  deleteDoc,
 } from "firebase/firestore";
 
 const LOCAL_FALLBACK = {
@@ -59,24 +62,24 @@ const YEAR = 2026;
 const SERVICES = { RNI: "RNI", COA: "COA" };
 
 const ATTENDINGS = [
-  { name: "Ambal", email: "nambalav@uab.edu" },
-  { name: "Arora", email: "nitinarora@uabmc.edu" },
-  { name: "Bhatia", email: "ksbhatia@uabmc.edu" },
-  { name: "Boone", email: "boone@uabmc.edu" },
-  { name: "Carlo", email: "wcarlo@uabmc.edu" },
-  { name: "Jain", email: "viraljain@uabmc.edu" },
-  { name: "Kandasamy", email: "jkandasamy@uabmc.edu" },
-  { name: "Kane", email: "akane@uabmc.edu" },
-  { name: "Mackay", email: "mackay@uabmc.edu" },
-  { name: "Schuyler", email: "aschuyler@uabmc.edu" },
-  { name: "Shukla", email: "vshukla@uabmc.edu" },
-  { name: "Sims", email: "bsims@uabmc.edu" },
-  { name: "Travers", email: "cptravers@uabmc.edu" },
-  { name: "Willis", email: "kentwillis@uabmc.edu" },
-  { name: "Winter", email: "lwinter@uabmc.edu" },
-  { name: "Salas", email: "asalas@uabmc.edu" },
-  { name: "Lal", email: "clal@uabmc.edu" },
-  { name: "Vivian", email: "vvalcarceluaces@uabmc.edu" },
+  { name: "Ambal", fullName: "Namasivayam Ambalavanan", email: "nambalav@uab.edu" },
+  { name: "Arora", fullName: "Nitin Arora", email: "nitinarora@uabmc.edu" },
+  { name: "Bhatia", fullName: "Kulsajan Bhatia", email: "ksbhatia@uabmc.edu" },
+  { name: "Boone", fullName: "Neal Boone", email: "boone@uabmc.edu" },
+  { name: "Carlo", fullName: "Waldemar Carlo", email: "wcarlo@uabmc.edu" },
+  { name: "Jain", fullName: "Viral Jain", email: "viraljain@uabmc.edu" },
+  { name: "Kandasamy", fullName: "Jegen Kandasamy", email: "jkandasamy@uabmc.edu", isAdmin: true },
+  { name: "Kane", fullName: "Andrea Kane", email: "akane@uabmc.edu" },
+  { name: "Mackay", fullName: "Amy Mackay", email: "mackay@uabmc.edu" },
+  { name: "Schuyler", fullName: "Amelia Schuyler", email: "aschuyler@uabmc.edu" },
+  { name: "Shukla", fullName: "Vivek Shukla", email: "vshukla@uabmc.edu" },
+  { name: "Sims", fullName: "Brian Sims", email: "bsims@uabmc.edu" },
+  { name: "Travers", fullName: "Colm Travers", email: "cptravers@uabmc.edu" },
+  { name: "Willis", fullName: "Kent Willis", email: "kentwillis@uabmc.edu" },
+  { name: "Winter", fullName: "Lindy Winter", email: "lwinter@uabmc.edu" },
+  { name: "Salas", fullName: "Ariel Salas", email: "asalas@uabmc.edu" },
+  { name: "Lal", fullName: "Vivek Lal", email: "clal@uabmc.edu" },
+  { name: "Vivian", fullName: "Vivian Valcarce", email: "vvalcarceluaces@uabmc.edu" },
 ];
 
 const ATTENDING_CODES = {
@@ -412,6 +415,238 @@ export default function App() {
   }, []);
 
   const clearAll = useCallback(() => dispatch({ type: "clear" }), []);
+
+  // Admin functions
+  const loadAllSubmissions = async () => {
+    if (!db) return;
+    setLoadingSubmissions(true);
+    try {
+      const snapshot = await getDocs(collection(db, "prefs_single"));
+      const submissions = [];
+      snapshot.forEach((doc) => {
+        submissions.push({ id: doc.id, ...doc.data() });
+      });
+      setAllSubmissions(submissions);
+    } catch (e) {
+      console.error("Failed to load submissions", e);
+      alert("Failed to load submissions");
+    } finally {
+      setLoadingSubmissions(false);
+    }
+  };
+
+  const downloadAllSubmissionsCSV = () => {
+    if (allSubmissions.length === 0) {
+      alert("No submissions to download");
+      return;
+    }
+    const rows = [];
+    for (const sub of allSubmissions) {
+      const rankings = Array.isArray(sub.rankings) ? sub.rankings : [];
+      for (const r of rankings) {
+        rows.push({
+          name: sub.who,
+          email: sub.email,
+          date: r.date,
+          service: r.service,
+          rank: r.rank,
+        });
+      }
+    }
+    const headers = ["name", "email", "date", "service", "rank"];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      headers.join(","),
+      ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${YEAR}-all-submissions.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetUserData = async (userName) => {
+    if (!db) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to reset all data for ${userName}? This will delete their draft and submission.`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteDoc(doc(db, "prefs_draft", `${YEAR}-${userName}`));
+      await deleteDoc(doc(db, "prefs_single", `${YEAR}-${userName}`));
+      alert(`Successfully reset data for ${userName}`);
+      loadAllSubmissions();
+    } catch (e) {
+      console.error("Failed to reset user data", e);
+      alert("Failed to reset user data");
+    }
+  };
+
+  // Fair allocation algorithm
+  const runAllocationAlgorithm = () => {
+    if (allSubmissions.length === 0) {
+      alert("No submissions to allocate");
+      return;
+    }
+
+    // Build preference map: {attendingName: [{date, service, rank}, ...]}
+    const preferenceMap = {};
+    allSubmissions.forEach((sub) => {
+      const rankings = Array.isArray(sub.rankings) ? sub.rankings : [];
+      preferenceMap[sub.who] = rankings.sort((a, b) => a.rank - b.rank);
+    });
+
+    // Get all slots that need filling
+    const slotsToFill = [];
+    for (const mk of MONTH_KEYS) {
+      for (const d of months[mk]) {
+        if (!d.rni) slotsToFill.push({ date: d.date, service: "RNI" });
+        if (!d.coa) slotsToFill.push({ date: d.date, service: "COA" });
+      }
+    }
+
+    // Track assignments: {attendingName: count}
+    const assignmentCounts = {};
+    ATTENDINGS.forEach((a) => {
+      assignmentCounts[a.name] = ATTENDING_LIMITS[a.name]?.claimed || 0;
+    });
+
+    // Final schedule
+    const schedule = {};
+
+    // Algorithm: Process each slot, assign to the person with highest preference who can take it
+    const usedSlots = new Set();
+    
+    // Sort attendings by how many slots they still need (those needing more get priority)
+    const sortedAttendings = [...ATTENDINGS].sort((a, b) => {
+      const aNeeded = (ATTENDING_LIMITS[a.name]?.requested || 0) - assignmentCounts[a.name];
+      const bNeeded = (ATTENDING_LIMITS[b.name]?.requested || 0) - assignmentCounts[b.name];
+      return bNeeded - aNeeded;
+    });
+
+    // Iterate multiple rounds to ensure fair distribution
+    let maxRounds = 50;
+    let round = 0;
+    
+    while (round < maxRounds) {
+      let assignedThisRound = false;
+      
+      for (const attending of sortedAttendings) {
+        const name = attending.name;
+        const limit = ATTENDING_LIMITS[name];
+        if (!limit) continue;
+        
+        const needed = limit.requested - assignmentCounts[name];
+        if (needed <= 0) continue;
+        
+        const prefs = preferenceMap[name] || [];
+        
+        // Find their highest-ranked available preference
+        for (const pref of prefs) {
+          const slotKey = `${pref.date}-${pref.service}`;
+          if (usedSlots.has(slotKey)) continue;
+          
+          // Check if this slot is actually available
+          const isAvailable = slotsToFill.some(
+            (s) => s.date === pref.date && s.service === pref.service
+          );
+          if (!isAvailable) continue;
+          
+          // Assign this slot
+          if (!schedule[pref.date]) schedule[pref.date] = {};
+          schedule[pref.date][pref.service] = name;
+          usedSlots.add(slotKey);
+          assignmentCounts[name]++;
+          assignedThisRound = true;
+          break;
+        }
+      }
+      
+      if (!assignedThisRound) break;
+      round++;
+    }
+
+    // Check for unfilled slots
+    const unfilledSlots = slotsToFill.filter((slot) => {
+      const slotKey = `${slot.date}-${slot.service}`;
+      return !usedSlots.has(slotKey);
+    });
+
+    setAllocatedSchedule({
+      schedule,
+      assignmentCounts,
+      unfilledSlots,
+      stats: {
+        totalSlots: slotsToFill.length,
+        filledSlots: usedSlots.size,
+        unfilledSlots: unfilledSlots.length,
+      },
+    });
+    setShowAllocationModal(true);
+  };
+
+  const saveAllocation = async () => {
+    if (!allocatedSchedule || !db) return;
+    
+    const confirmed = window.confirm(
+      "Are you sure you want to save this allocation? This will update the schedule permanently."
+    );
+    if (!confirmed) return;
+
+    try {
+      const allocationDoc = {
+        year: YEAR,
+        schedule: allocatedSchedule.schedule,
+        assignmentCounts: allocatedSchedule.assignmentCounts,
+        unfilledSlots: allocatedSchedule.unfilledSlots,
+        stats: allocatedSchedule.stats,
+        createdAt: serverTimestamp(),
+        createdBy: selected?.name || "Admin",
+      };
+      
+      await setDoc(doc(db, "allocations", `${YEAR}-final`), allocationDoc);
+      alert("Allocation saved successfully!");
+      setShowAllocationModal(false);
+    } catch (e) {
+      console.error("Failed to save allocation", e);
+      alert("Failed to save allocation");
+    }
+  };
+
+  const downloadAllocationCSV = () => {
+    if (!allocatedSchedule) return;
+    
+    const rows = [];
+    for (const date in allocatedSchedule.schedule) {
+      const services = allocatedSchedule.schedule[date];
+      for (const service in services) {
+        const attending = services[service];
+        rows.push({ date, service, attending });
+      }
+    }
+    
+    const headers = ["date", "service", "attending"];
+    const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [
+      headers.join(","),
+      ...rows.map((r) => headers.map((h) => esc(r[h])).join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${YEAR}-final-allocation.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const alreadyAssigned = useMemo(() => {
     if (!selected) return [];
@@ -840,7 +1075,9 @@ export default function App() {
         <select className="id-select" value={gateEmail} onChange={(e) => setGateEmail(e.target.value)}>
           <option value="">Select your name</option>
           {ATTENDINGS.map((a) => (
-            <option key={a.email} value={a.email}>{a.name} — {a.email}</option>
+            <option key={a.email} value={a.email}>
+              {a.fullName} ({a.name})
+            </option>
           ))}
         </select>
         <input
@@ -880,6 +1117,26 @@ export default function App() {
           <div className="topbar-inner">
             <div className="section-title">UAB/COA Weekend Attending Scheduler 2026</div>
             <div className="spacer" />
+            {selected && (
+              <span className="badge" style={{ 
+                background: selected.isAdmin 
+                  ? 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)' 
+                  : 'rgba(255, 255, 255, 0.2)',
+                color: selected.isAdmin ? '#111827' : '#ffffff',
+                borderColor: selected.isAdmin ? 'rgba(251, 191, 36, 0.4)' : 'rgba(255, 255, 255, 0.3)',
+                padding: '6px 14px',
+                fontSize: '13px',
+                fontWeight: 700
+              }}>
+                {selected.isAdmin && '👑 '}
+                {selected.fullName}
+              </span>
+            )}
+            {selected?.isAdmin && (
+              <button className="btn btn-amber" onClick={() => setShowAdminPanel(!showAdminPanel)}>
+                {showAdminPanel ? 'Hide Admin Panel' : 'Admin Panel'}
+              </button>
+            )}
             <span className="badge">{firebaseConfig.projectId}</span>
             <button className="btn" onClick={submit}>Submit</button>
             <button className="btn btn-green" onClick={downloadCSV}>Download CSV</button>
@@ -896,6 +1153,101 @@ export default function App() {
               </div>
             ) : (
               <>
+                {selected?.isAdmin && showAdminPanel && (
+                  <div className="section" style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderColor: '#fbbf24' }}>
+                    <div className="section-head">
+                      <h3 className="section-title">👑 Admin Panel</h3>
+                    </div>
+                    <div className="section-body">
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                        
+                        {/* View All Submissions */}
+                        <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📊 View All Submissions</h4>
+                          <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                            <button className="btn btn-green" onClick={loadAllSubmissions} disabled={loadingSubmissions}>
+                              {loadingSubmissions ? 'Loading...' : 'Load All Submissions'}
+                            </button>
+                            {allSubmissions.length > 0 && (
+                              <button className="btn" onClick={downloadAllSubmissionsCSV}>
+                                Download All as CSV
+                              </button>
+                            )}
+                          </div>
+                          {allSubmissions.length > 0 && (
+                            <div style={{ marginTop: 16 }}>
+                              <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                                Total Submissions: {allSubmissions.length} / {ATTENDINGS.length}
+                              </div>
+                              <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+                                {allSubmissions.map((sub) => (
+                                  <div key={sub.id} style={{ padding: '8px 0', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                      <strong>{sub.who}</strong> ({sub.email})
+                                      <br />
+                                      <span style={{ fontSize: 12, color: '#64748b' }}>
+                                        {sub.rankings?.length || 0} preferences ranked
+                                      </span>
+                                    </div>
+                                    <button className="btn-link" style={{ color: '#dc2626' }} onClick={() => resetUserData(sub.who)}>
+                                      Reset
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Analytics Dashboard */}
+                        <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📈 Analytics</h4>
+                          {allSubmissions.length > 0 ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+                              <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8 }}>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0369a1' }}>
+                                  {allSubmissions.length}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#0369a1' }}>Submitted</div>
+                              </div>
+                              <div style={{ background: '#fef3c7', padding: 12, borderRadius: 8 }}>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#92400e' }}>
+                                  {ATTENDINGS.length - allSubmissions.length}
+                                </div>
+                                <div style={{ fontSize: 12, color: '#92400e' }}>Pending</div>
+                              </div>
+                              <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8 }}>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#15803d' }}>
+                                  {Math.round((allSubmissions.length / ATTENDINGS.length) * 100)}%
+                                </div>
+                                <div style={{ fontSize: 12, color: '#15803d' }}>Completion</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ color: '#64748b' }}>Load submissions to see analytics</div>
+                          )}
+                        </div>
+
+                        {/* Run Allocation Algorithm */}
+                        <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>🎯 Run Fair Allocation</h4>
+                          <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
+                            This algorithm will fairly distribute weekends based on everyone's ranked preferences and requested limits.
+                          </p>
+                          <button 
+                            className="btn primary" 
+                            onClick={runAllocationAlgorithm}
+                            disabled={allSubmissions.length === 0}
+                          >
+                            Run Allocation Algorithm
+                          </button>
+                        </div>
+
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {showLimits && limitsSummary && (
                   <div className="section">
                     <div className="section-head">
@@ -953,19 +1305,91 @@ export default function App() {
           </div>
         </div>
       </div>
-      {showSubmitPrompt && (
+      {showAllocationModal && allocatedSchedule && (
         <div className="modal-overlay">
-          <div className="modal">
-            <h3>Before you submit...</h3>
-            <p>Please follow these steps:</p>
-            <ol style={{ textAlign: "left", marginTop: 16, marginBottom: 16 }}>
-              <li style={{ marginBottom: 8 }}>Click "Download CSV" to save your preferences</li>
-              <li style={{ marginBottom: 8 }}>Open the CSV file and verify all your ranked weekends are correct</li>
-              <li style={{ marginBottom: 8 }}>If everything looks good, come back and click "Submit Now" below</li>
-            </ol>
-            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-              <button className="btn btn-green" onClick={reallySubmit}>Submit Now</button>
-              <button className="btn" onClick={() => setShowSubmitPrompt(false)}>Cancel</button>
+          <div className="modal" style={{ width: 'min(800px, 90vw)', maxHeight: '90vh', overflow: 'auto' }}>
+            <h3>🎯 Allocation Results</h3>
+            
+            {/* Stats */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 20 }}>
+              <div style={{ background: '#f0fdf4', padding: 12, borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#15803d' }}>
+                  {allocatedSchedule.stats.filledSlots}
+                </div>
+                <div style={{ fontSize: 12, color: '#15803d' }}>Slots Filled</div>
+              </div>
+              <div style={{ background: '#fef3c7', padding: 12, borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#92400e' }}>
+                  {allocatedSchedule.stats.unfilledSlots}
+                </div>
+                <div style={{ fontSize: 12, color: '#92400e' }}>Unfilled</div>
+              </div>
+              <div style={{ background: '#f0f9ff', padding: 12, borderRadius: 8, textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#0369a1' }}>
+                  {Math.round((allocatedSchedule.stats.filledSlots / allocatedSchedule.stats.totalSlots) * 100)}%
+                </div>
+                <div style={{ fontSize: 12, color: '#0369a1' }}>Fill Rate</div>
+              </div>
+            </div>
+
+            {/* Assignment counts per attending */}
+            <div style={{ marginBottom: 20 }}>
+              <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Assignments per Attending:</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, fontSize: 12 }}>
+                {Object.entries(allocatedSchedule.assignmentCounts).map(([name, count]) => {
+                  const limit = ATTENDING_LIMITS[name];
+                  return (
+                    <div key={name} style={{ padding: 8, background: '#f8fafc', borderRadius: 6 }}>
+                      <strong>{name}</strong>: {count} / {limit?.requested || 0}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Unfilled slots */}
+            {allocatedSchedule.unfilledSlots.length > 0 && (
+              <div style={{ marginBottom: 20, padding: 12, background: '#fef3c7', borderRadius: 8 }}>
+                <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: '#92400e' }}>
+                  ⚠️ Unfilled Slots ({allocatedSchedule.unfilledSlots.length}):
+                </h4>
+                <div style={{ fontSize: 12 }}>
+                  {allocatedSchedule.unfilledSlots.map((slot, i) => (
+                    <span key={i} style={{ marginRight: 8 }}>
+                      {fmtLabel(slot.date)} ({slot.service})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Schedule preview */}
+            <div style={{ marginBottom: 20 }}>
+              <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Schedule Preview:</h4>
+              <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, fontSize: 12 }}>
+                {Object.entries(allocatedSchedule.schedule)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, services]) => (
+                    <div key={date} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                      <strong>{fmtLabel(date)}:</strong>{' '}
+                      {services.RNI && `RNI: ${services.RNI}`}
+                      {services.RNI && services.COA && ', '}
+                      {services.COA && `COA: ${services.COA}`}
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-green" onClick={saveAllocation}>
+                Save Allocation to Database
+              </button>
+              <button className="btn" onClick={downloadAllocationCSV}>
+                Download as CSV
+              </button>
+              <button className="btn" onClick={() => setShowAllocationModal(false)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
