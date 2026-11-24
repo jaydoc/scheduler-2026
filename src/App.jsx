@@ -202,18 +202,18 @@ function CalendarMode({ ctx }) {
           <div style={{ 
             padding: 16, 
             marginBottom: 16, 
-            background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+            background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
             borderRadius: 12, 
-            border: '1px solid #c7d2fe',
+            border: '1px solid #b9d9c5',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'start'
           }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
                 📅 Calendar Mode Instructions
               </div>
-              <div style={{ fontSize: 13, color: '#5b21b6' }}>
+              <div style={{ fontSize: 13, color: '#1a5632' }}>
                 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
                   <li>Browse all weekends by month</li>
                   <li>Click "RNI → Rank" or "COA → Rank" buttons to add a weekend to your rankings</li>
@@ -327,18 +327,18 @@ function QuickAddMode({ ctx }) {
             <div style={{ 
               padding: 16, 
               marginBottom: 16, 
-              background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+              background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
               borderRadius: 12, 
-              border: '1px solid #c7d2fe',
+              border: '1px solid #b9d9c5',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'start'
             }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
                   ⚡ QuickAdd Mode Instructions
                 </div>
-                <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                <div style={{ fontSize: 13, color: '#1a5632' }}>
                   <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
                     <li>Use the dropdown menus to select a month</li>
                     <li>Pick a Saturday from the available dates</li>
@@ -437,18 +437,18 @@ function RankBoardMode({ ctx }) {
           <div style={{ 
             padding: 16, 
             marginBottom: 16, 
-            background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+            background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
             borderRadius: 12, 
-            border: '1px solid #c7d2fe',
+            border: '1px solid #b9d9c5',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'start'
           }}>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
                 🎯 RankBoard Mode Instructions
               </div>
-              <div style={{ fontSize: 13, color: '#5b21b6' }}>
+              <div style={{ fontSize: 13, color: '#1a5632' }}>
                 <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
                   <li>View all weekends in a calendar layout</li>
                   <li>Click buttons to add weekends to your ranked preferences</li>
@@ -562,18 +562,18 @@ function DragBucketsMode({ ctx }) {
             <div style={{ 
               padding: 16, 
               marginBottom: 16, 
-              background: 'linear-gradient(135deg, #e0e7ff 0%, #ddd6fe 100%)', 
+              background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
               borderRadius: 12, 
-              border: '1px solid #c7d2fe',
+              border: '1px solid #b9d9c5',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'start'
             }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#5b21b6', marginBottom: 6 }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
                   🎪 DragBuckets Mode Instructions
                 </div>
-                <div style={{ fontSize: 13, color: '#5b21b6' }}>
+                <div style={{ fontSize: 13, color: '#1a5632' }}>
                   <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
                     <li>Click any available weekend date to select a service (RNI or COA)</li>
                     <li>Drag items in either panel to reorder your preferences</li>
@@ -1067,10 +1067,10 @@ export default function App() {
             {selected && (
               <span className="badge" style={{
                 background: selected.isAdmin
-                  ? 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)'
+                  ? 'linear-gradient(135deg, #fdb913 0%, #e6a40b 100%)'
                   : 'rgba(255, 255, 255, 0.2)',
                 color: selected.isAdmin ? '#111827' : '#ffffff',
-                borderColor: selected.isAdmin ? 'rgba(251, 191, 36, 0.4)' : 'rgba(255, 255, 255, 0.3)',
+                borderColor: selected.isAdmin ? 'rgba(253, 185, 19, 0.4)' : 'rgba(255, 255, 255, 0.3)',
                 padding: '6px 14px',
                 fontSize: '13px',
                 fontWeight: 700
@@ -1140,7 +1140,7 @@ export default function App() {
             ) : (
               <>
                 {selected?.isAdmin && showAdminPanel && (
-                  <div className="section" style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderColor: '#fbbf24' }}>
+                  <div className="section" style={{ background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)', borderColor: '#fdb913' }}>
                     <div className="section-head">
                       <h3 className="section-title">👑 Admin Panel</h3>
                     </div>
