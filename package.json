@@ -1,15 +1,17 @@
 {
-  "name": "fair-scheduler-app",
+  "name": "weekend-scheduler",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/allocate.test.js"
   },
   "dependencies": {
-    "firebase": "^9.23.0", 
+    "docx": "^9.15.3",
+    "firebase": "^9.23.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
