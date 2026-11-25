@@ -136,6 +136,10 @@ export const ON_SERVICE = Object.fromEntries(
 // computed (admin can publish the real number from the Admin Panel).
 export const DEFAULT_MAX_ESTIMATE = "5–6";
 
+// The live address. Preview mode (?demo) is switched off here so attendings
+// can't end up in it by accident; it still works on Vercel preview links.
+export const LIVE_HOSTS = ["uabneo-scheduler-2027.vercel.app"];
+
 // Optional: link shown in the top bar.
 export const REPO_URL = "https://github.com/jaydoc/scheduler-2026";
 

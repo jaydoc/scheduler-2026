@@ -12,7 +12,7 @@ import {
 import {
   getFirestore, doc, getDoc, setDoc, deleteDoc, collection, getDocs, serverTimestamp,
 } from "firebase/firestore";
-import { YEAR, ATTENDING_BY_EMAIL } from "./config.js";
+import { YEAR, ATTENDING_BY_EMAIL, LIVE_HOSTS } from "./config.js";
 
 const LOCAL_FALLBACK = {
   apiKey: "AIzaSyB6CvHk5u4jvvO8oXGnf_GTq1RMbwhT-JU",
@@ -33,7 +33,10 @@ export const firebaseConfig = (() => {
   return LOCAL_FALLBACK;
 })();
 
-export const IS_DEMO = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
+export const IS_DEMO =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).has("demo") &&
+  !LIVE_HOSTS.includes(window.location.hostname);
 
 const COL = {
   drafts: `weekend${YEAR}_drafts`,
