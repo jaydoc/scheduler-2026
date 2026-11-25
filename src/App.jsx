@@ -187,8 +187,6 @@ function reducer(state, action) {
 const MODES = {
   CAL: "calendar",
   QA:  "quick",
-  RB:  "rank",
-  DB:  "drag",
 };
 
 
@@ -427,256 +425,6 @@ function QuickAddMode({ ctx }) {
     );
 }
 
-function RankBoardMode({ ctx }) {
-  const { rankings, add, remove, onDragStartItem, onDragOverItem, onDropItem,
-          dismissedInstructions, setDismissedInstructions, rankingsNote } = ctx;
-  return (
-    <div style={{ display: "flex", gap: 20 }}>
-      <div className="months" style={{ flex: 1 }}>
-        {dismissedInstructions[MODES.RB] !== true && (
-          <div style={{ 
-            padding: 16, 
-            marginBottom: 16, 
-            background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
-            borderRadius: 12, 
-            border: '1px solid #b9d9c5',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'start'
-          }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
-                🎯 RankBoard Mode Instructions
-              </div>
-              <div style={{ fontSize: 13, color: '#1a5632' }}>
-                <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
-                  <li>View all weekends in a calendar layout</li>
-                  <li>Click buttons to add weekends to your ranked preferences</li>
-                  <li>Your current rank appears on each selected weekend</li>
-                  <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
-                </ol>
-              </div>
-            </div>
-            <button 
-              className="btn-link" 
-              style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-              onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.RB]: true }))}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-        {MONTH_KEYS.map((mk, i) => (
-          <div key={mk} className="month">
-            <div className="month-toggle">
-              <span className="month-title">{MONTH_FULL[i]}</span>
-            </div>
-            <div className="days">
-              {months[mk].map((d) => {
-                const avail = getAvailableServicesForDate(d.date);
-                const r = rankings.find(x => x.date === d.date);
-                return (
-                  <div key={d.date} className="day">
-                    <div className="day-top">
-                      <span className="day-label">{d.day}</span>
-                      <span className="day-date">({fmtLabel(d.date)})</span>
-                    </div>
-                    {d.detail && <div className="day-detail">{d.detail}</div>}
-                    <div className="pill-row">
-                      {d.rni && <Pill>RNI: {d.rni}</Pill>}
-                      {d.coa && <Pill>COA: {d.coa}</Pill>}
-                      {r && <Pill>Rank #{r.rank}</Pill>}
-                    </div>
-                    <div className="svc-actions">
-                      {avail.includes(SERVICES.RNI) && (
-                        <button className="btn btn-svc" onClick={() => add(d.date, SERVICES.RNI)}>
-                          RNI → Rank
-                        </button>
-                      )}
-                      {avail.includes(SERVICES.COA) && (
-                        <button className="btn btn-svc" onClick={() => add(d.date, SERVICES.COA)}>
-                          COA → Rank
-                        </button>
-                      )}
-                      {avail.length === 0 && <span className="pill pill-muted">Full</span>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-      <div style={{ width: 300, flexShrink: 0 }}>
-        <div style={{ position: "sticky", top: 20 }}>
-          <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-            Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
-          </div>
-          {rankingsNote}
-          <ol className="preview-list">
-            {compressRanks(rankings).map((r, idx) => (
-              <li
-                key={`${r.date}-${r.service}`}
-                className="preview-item draggable-item"
-                draggable
-                onDragStart={onDragStartItem(idx)}
-                onDragOver={onDragOverItem(idx)}
-                onDrop={onDropItem(idx)}
-              >
-                <DragHandle />
-                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
-              </li>
-            ))}
-            {rankings.length === 0 && (
-              <li className="preview-item"><span className="muted">No preferences yet.</span></li>
-            )}
-          </ol>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DragBucketsMode({ ctx }) {
-  const { rankings, add, remove, onDragStartItem, onDragOverItem, onDropItem,
-          dismissedInstructions, setDismissedInstructions, rankingsNote } = ctx;
-    const [popover, setPopover] = useState(null);
-    const openPopover = (e, date) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      setPopover({ x: rect.left, y: rect.bottom, date });
-    };
-    const closePopover = () => setPopover(null);
-    const onPickService = (svc) => {
-      if (!popover) return;
-      add(popover.date, svc);
-      setPopover(null);
-    };
-    const chosenKeys = new Set(rankings.map(r => `${r.date}`));
-
-    return (
-      <div style={{ display: "flex", gap: 20 }}>
-        <div className="dragbuckets" style={{ flex: 1 }}>
-          {dismissedInstructions[MODES.DB] !== true && (
-            <div style={{ 
-              padding: 16, 
-              marginBottom: 16, 
-              background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)', 
-              borderRadius: 12, 
-              border: '1px solid #b9d9c5',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'start'
-            }}>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
-                  🎪 DragBuckets Mode Instructions
-                </div>
-                <div style={{ fontSize: 13, color: '#1a5632' }}>
-                  <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
-                    <li>Click any available weekend date to select a service (RNI or COA)</li>
-                    <li>Drag items in either panel to reorder your preferences</li>
-                    <li>#1 = most preferred, #2 = less preferred, etc.</li>
-                    <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
-                  </ol>
-                </div>
-              </div>
-              <button 
-                className="btn-link" 
-                style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-                onClick={() => setDismissedInstructions(prev => ({ ...prev, [MODES.DB]: true }))}
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-          <div className="db-left">
-            <div className="db-title">Available weekends</div>
-            <div className="db-months">
-              {MONTH_KEYS.map((mk, idx) => (
-                <div className="db-month" key={mk}>
-                  <div className="db-month-title">{MONTH_FULL[idx]}</div>
-                  <div className="db-chip-row">
-                    {months[mk].map(d => {
-                      if (chosenKeys.has(d.date)) return null;
-                      return (
-                        <button key={d.date} className="db-chip" onClick={(e) => openPopover(e, d.date)}>
-                          {fmtLabel(d.date)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="db-right">
-            <div className="db-title">Drag to re-order your ranked weekends</div>
-            <ol className="preview-list">
-              {compressRanks(rankings).map((r, idx) => (
-                <li
-                  key={`${r.date}-${r.service}`}
-                  className="preview-item draggable-item"
-                  draggable
-                  onDragStart={onDragStartItem(idx)}
-                  onDragOver={onDragOverItem(idx)}
-                  onDrop={onDropItem(idx)}
-                >
-                  <DragHandle />
-                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                  <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
-                </li>
-              ))}
-              {rankings.length === 0 && (
-                <li className="preview-item">
-                  <span className="muted">No ranked weekends yet. Click a date to pick a service.</span>
-                </li>
-              )}
-            </ol>
-          </div>
-          {popover && (
-            <InlineServicePopover
-              x={popover.x}
-              y={popover.y}
-              date={popover.date}
-              onPick={onPickService}
-              onClose={closePopover}
-            />
-          )}
-        </div>
-        <div style={{ width: 300, flexShrink: 0 }}>
-          <div style={{ position: "sticky", top: 20 }}>
-            <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-              Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
-            </div>
-            {rankingsNote}
-            <ol className="preview-list">
-              {compressRanks(rankings).map((r, idx) => (
-                <li
-                  key={`${r.date}-${r.service}`}
-                  className="preview-item draggable-item"
-                  draggable
-                  onDragStart={onDragStartItem(idx)}
-                  onDragOver={onDragOverItem(idx)}
-                  onDrop={onDropItem(idx)}
-                >
-                  <DragHandle />
-                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                  <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
-                </li>
-              ))}
-              {rankings.length === 0 && (
-                <li className="preview-item"><span className="muted">No preferences yet.</span></li>
-              )}
-            </ol>
-          </div>
-        </div>
-      </div>
-    );
-}
-
 export default function App() {
   const store = useMemo(() => createStore(), []);
 
@@ -794,8 +542,8 @@ export default function App() {
 
   const rankingsNote = expected && expected.hi > 0 ? (
     <div className="rank-note">
-      Ranked <b>{rankings.length}</b> · you're likely to get <b>{expected.text}</b>
-      {rankings.length < suggestRank && <> · rank at least <b>{suggestRank}</b> for the best chance</>}
+      Ranked <b>{rankings.length}</b>
+      {rankings.length < suggestRank && <> · rank at least <b>{suggestRank}</b> for the best chance of getting weekends you want</>}
     </div>
   ) : null;
 
@@ -1003,12 +751,6 @@ export default function App() {
       </button>
       <button className={mode === MODES.QA ? "tab active" : "tab"} onClick={() => setMode(MODES.QA)}>
         QuickAdd
-      </button>
-      <button className={mode === MODES.RB ? "tab active" : "tab"} onClick={() => setMode(MODES.RB)}>
-        RankBoard
-      </button>
-      <button className={mode === MODES.DB ? "tab active" : "tab"} onClick={() => setMode(MODES.DB)}>
-        DragBuckets
       </button>
     </div>
   );
@@ -1283,6 +1025,46 @@ export default function App() {
                   </div>
                 )}
 
+                {!dismissedInstructions.overview && (
+                  <div className="section">
+                    <div className="section-body">
+                      <div style={{
+                        padding: 16,
+                        background: 'linear-gradient(135deg, #e6f2ea 0%, #d3e8db 100%)',
+                        borderRadius: 12,
+                        border: '1px solid #b9d9c5',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'start'
+                      }}>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: 14, color: '#1a5632', marginBottom: 6 }}>
+                            📋 How this works
+                          </div>
+                          <div style={{ fontSize: 13, color: '#1a5632' }}>
+                            <ol style={{ margin: '8px 0', paddingLeft: 20 }}>
+                              <li style={{ marginBottom: 4 }}>Choose how many weekends you want.</li>
+                              <li style={{ marginBottom: 4 }}>
+                                Add weekends to your list in order of preference (#1 = most wanted).{' '}
+                                <strong>Rank as many weekends as you can.</strong> The more you rank, the more likely you are
+                                to end up with weekends you actually want, rather than whatever is left over.
+                              </li>
+                              <li>Click <strong>Submit</strong> when you're done. You can still make changes and resubmit until the deadline.</li>
+                            </ol>
+                          </div>
+                        </div>
+                        <button
+                          className="btn-link"
+                          style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+                          onClick={() => setDismissedInstructions(prev => ({ ...prev, overview: true }))}
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {showLimits ? (
                   <div className="section">
                     <div className="section-head">
@@ -1302,10 +1084,6 @@ export default function App() {
                             ))}
                             <option value={WANT_MAX}>As many as possible</option>
                           </select>
-                        </div>
-                        <div className="limit-item">
-                          <span className="limit-label">You're likely to get:</span>
-                          <span className="limit-value">{expected ? expected.text : "—"}</span>
                         </div>
                         <div className="limit-item">
                           <span className="limit-label">Currently ranked:</span>
@@ -1336,7 +1114,7 @@ export default function App() {
                       </div>
                       {alreadyAssigned.length > 0 && (
                         <div className="assigned-list">
-                          <div className="assigned-title">Holiday blocks you're already covering (not counted in your weekends):</div>
+                          <div className="assigned-title">Holiday blocks you're covering:</div>
                           <ul>
                             {alreadyAssigned.map((a, i) => (
                               <li key={i}>{a.detail} ({fmtLabel(a.date)}) — {a.service}</li>
@@ -1349,7 +1127,7 @@ export default function App() {
                 ) : (
                   <div className="section">
                     <div className="section-body" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 14 }}>
-                      <span>You want <b>{wantLabel(want)}</b> · likely to get <b>{expected?.text ?? "—"}</b> · ranked <b>{rankings.length}</b></span>
+                      <span>You want <b>{wantLabel(want)}</b> · ranked <b>{rankings.length}</b></span>
                       <button className="btn-link" onClick={() => setShowLimits(true)}>Edit</button>
                     </div>
                   </div>
@@ -1363,8 +1141,6 @@ export default function App() {
                     <ModeTabs />
                     {mode === MODES.CAL && <CalendarMode ctx={ctx} />}
                     {mode === MODES.QA && <QuickAddMode ctx={ctx} />}
-                    {mode === MODES.RB && <RankBoardMode ctx={ctx} />}
-                    {mode === MODES.DB && <DragBucketsMode ctx={ctx} />}
                   </div>
                 </div>
               </>
