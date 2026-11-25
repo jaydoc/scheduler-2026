@@ -11,16 +11,16 @@ export const SERVICES = { RNI: "RNI", COA: "COA" };
 // The 18 faculty who take weekends. `name` is the short name used
 // everywhere (schedule, Word document, tallies).
 export const ATTENDINGS = [
-  { name: "Ambal",     fullName: "Namasivayam Ambalavanan", email: "nambalav@uab.edu" },
+  { name: "Ambal",     fullName: "Namasivayam Ambalavanan", email: "nambalav@uabmc.edu" },
   { name: "Arora",     fullName: "Nitin Arora",             email: "nitinarora@uabmc.edu" },
   { name: "Bhatia",    fullName: "Kulsajan Bhatia",         email: "ksbhatia@uabmc.edu" },
-  { name: "Boone",     fullName: "Neal Boone",              email: "boone@uabmc.edu" },
-  { name: "Carlo",     fullName: "Waldemar Carlo",          email: "wcarlo@uabmc.edu" },
+  { name: "Boone",     fullName: "Neal Boone",              email: "nboone@uabmc.edu" },
+  { name: "Carlo",     fullName: "Waldemar Carlo",          email: "wacarlo@uabmc.edu" },
   { name: "Jain",      fullName: "Viral Jain",              email: "viraljain@uabmc.edu" },
   { name: "Kandasamy", fullName: "Jegen Kandasamy",         email: "jkandasamy@uabmc.edu", isAdmin: true },
   { name: "Kane",      fullName: "Andrea Kane",             email: "akane@uabmc.edu" },
   { name: "Lal",       fullName: "Vivek Lal",               email: "clal@uabmc.edu" },
-  { name: "Mackay",    fullName: "Amy Mackay",              email: "mackay@uabmc.edu" },
+  { name: "Mackay",    fullName: "Amy Mackay",              email: "amysessions@uabmc.edu" },
   { name: "Salas",     fullName: "Ariel Salas",             email: "asalas@uabmc.edu" },
   { name: "Schuyler",  fullName: "Amelia Schuyler",         email: "aschuyler@uabmc.edu" },
   { name: "Shukla",    fullName: "Vivek Shukla",            email: "vshukla@uabmc.edu" },
