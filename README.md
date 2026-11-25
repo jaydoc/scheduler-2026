@@ -1,8 +1,19 @@
 # UAB/COA Weekend Attending Scheduler — 2027
 
-Attendings sign in with their UAB email (no password), say how many weekends
-they want, and rank weekends in order of preference. The admin then runs a fair
-allocation and downloads the group's Word document.
+Each attending opens their **personal link** (emailed by the scheduler), says how
+many weekends they want, and ranks weekends in order of preference. The admin
+then runs a fair allocation and downloads the group's Word document.
+
+## Personal links
+
+- Admin Panel → **Personal Links** → *Create links for everyone who doesn't have one*.
+- Click **Compose email** next to each name to open a ready-to-send Outlook message
+  (or **Copy link** to paste it yourself).
+- A link works all week, on any device. If one is lost or forwarded, click
+  **New link**: the old link stops working and the person's saved choices move
+  to the new one.
+- The admin signs in with a one-time email link ("Scheduler sign-in" on the login
+  screen). UAB email can take 5–10 minutes; only the newest link works.
 
 ## Try it without Firebase
 
@@ -48,8 +59,8 @@ In the [Firebase console](https://console.firebase.google.com), open the project
    web address where the app is hosted (for example `your-app.vercel.app` or
    `yourname.github.io`).
 3. **Firestore Database → Rules:** paste the contents of `firestore.rules` and
-   click **Publish**. Only the 18 listed emails can sign in; each person can
-   only see their own preferences; only the admin can see everyone's.
+   click **Publish**. Each personal link opens only its own record; links cannot
+   be listed or guessed; only the admin can see everyone's.
 4. Send yourself a sign-in link first to make sure UAB email delivers it (check
    Junk/Quarantine). If it is quarantined, ask UAB IT to allow
    `noreply@attending-schedule-2026.firebaseapp.com`.

@@ -1,52 +1,54 @@
 rules_version = '2';
 // Firestore security rules for the 2027 weekend scheduler.
 // Paste into Firebase console -> Firestore Database -> Rules -> Publish.
+//
+// Attendings: open a personal link (?k=<key>). They can read and write ONLY the
+// draft/submission stored under their own key, and only while that key is active.
+// Keys are 128-bit random values that cannot be listed or guessed.
+// Admin: signs in by email link and can read/write everything.
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null && request.auth.token.email_verified == true;
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() == 'jkandasamy@uabmc.edu';
     }
-    function myEmail() { return request.auth.token.email.lower(); }
-    function onList() {
-      return signedIn() && myEmail() in [
-        'nambalav@uab.edu',
-        'nitinarora@uabmc.edu',
-        'ksbhatia@uabmc.edu',
-        'boone@uabmc.edu',
-        'wcarlo@uabmc.edu',
-        'viraljain@uabmc.edu',
-        'jkandasamy@uabmc.edu',
-        'akane@uabmc.edu',
-        'clal@uabmc.edu',
-        'mackay@uabmc.edu',
-        'asalas@uabmc.edu',
-        'aschuyler@uabmc.edu',
-        'vshukla@uabmc.edu',
-        'bsims@uabmc.edu',
-        'cptravers@uabmc.edu',
-        'vvalcarceluaces@uabmc.edu',
-        'kentwillis@uabmc.edu',
-        'lwinter@uabmc.edu'
-      ];
+    function linkPath(t) { return /databases/$(database)/documents/weekend2027_links/$(t); }
+    function linkActive(t) { return exists(linkPath(t)) && get(linkPath(t)).data.active == true; }
+    function validEntry(t) {
+      return request.resource.data.keys().hasOnly(['who', 'token', 'want', 'rankings', 'ts', 'year'])
+        && request.resource.data.who == get(linkPath(t)).data.name
+        && request.resource.data.token == t
+        && request.resource.data.rankings is list
+        && request.resource.data.rankings.size() <= 200;
     }
-    function isAdmin() { return signedIn() && myEmail() == 'jkandasamy@uabmc.edu'; }
 
-    // Each person can only read/write their own draft and submission.
-    match /weekend2027_drafts/{email} {
-      allow read, write: if (onList() && myEmail() == email) || isAdmin();
+    // Personal links: anyone holding a key may look up that one key; only admin can list or change them.
+    match /weekend2027_links/{t} {
+      allow get: if true;
+      allow list, create, update, delete: if isAdmin();
     }
-    match /weekend2027_submissions/{email} {
-      allow read, write: if (onList() && myEmail() == email) || isAdmin();
+
+    match /weekend2027_drafts/{t} {
+      allow get: if isAdmin() || linkActive(t);
+      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t));
+      allow list, delete: if isAdmin();
     }
-    // Published numbers (e.g. the "as many as possible" share): everyone reads, admin writes.
+    match /weekend2027_submissions/{t} {
+      allow get: if isAdmin() || linkActive(t);
+      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t));
+      allow list, delete: if isAdmin();
+    }
+
+    // Published numbers (the "as many as possible" share): readable by all, admin writes.
     match /weekend2027_meta/{doc} {
-      allow read: if onList();
-      allow write: if isAdmin();
+      allow get: if true;
+      allow list, write: if isAdmin();
     }
     match /weekend2027_allocations/{doc} {
-      allow read: if onList();
-      allow write: if isAdmin();
+      allow read, write: if isAdmin();
     }
+
     // Everything else (including last year's data) is closed.
     match /{document=**} {
       allow read, write: if false;
