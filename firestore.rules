@@ -1,0 +1,55 @@
+rules_version = '2';
+// Firestore security rules for the 2027 weekend scheduler.
+// Paste into Firebase console -> Firestore Database -> Rules -> Publish.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function myEmail() { return request.auth.token.email.lower(); }
+    function onList() {
+      return signedIn() && myEmail() in [
+        'nambalav@uab.edu',
+        'nitinarora@uabmc.edu',
+        'ksbhatia@uabmc.edu',
+        'boone@uabmc.edu',
+        'wcarlo@uabmc.edu',
+        'viraljain@uabmc.edu',
+        'jkandasamy@uabmc.edu',
+        'akane@uabmc.edu',
+        'clal@uabmc.edu',
+        'mackay@uabmc.edu',
+        'asalas@uabmc.edu',
+        'aschuyler@uabmc.edu',
+        'vshukla@uabmc.edu',
+        'bsims@uabmc.edu',
+        'cptravers@uabmc.edu',
+        'vvalcarceluaces@uabmc.edu',
+        'kentwillis@uabmc.edu',
+        'lwinter@uabmc.edu'
+      ];
+    }
+    function isAdmin() { return signedIn() && myEmail() == 'jkandasamy@uabmc.edu'; }
+
+    // Each person can only read/write their own draft and submission.
+    match /weekend2027_drafts/{email} {
+      allow read, write: if (onList() && myEmail() == email) || isAdmin();
+    }
+    match /weekend2027_submissions/{email} {
+      allow read, write: if (onList() && myEmail() == email) || isAdmin();
+    }
+    // Published numbers (e.g. the "as many as possible" share): everyone reads, admin writes.
+    match /weekend2027_meta/{doc} {
+      allow read: if onList();
+      allow write: if isAdmin();
+    }
+    match /weekend2027_allocations/{doc} {
+      allow read: if onList();
+      allow write: if isAdmin();
+    }
+    // Everything else (including last year's data) is closed.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
