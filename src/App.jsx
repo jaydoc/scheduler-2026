@@ -277,11 +277,14 @@ function ScheduleMode({ ctx }) {
   for (let i = 0; i < MONTH_KEYS.length; i += 2) pairs.push([MONTH_KEYS[i], MONTH_KEYS[i + 1]]);
   const col = (mk) => {
     const roles = rolesFor(me, mk);
+    const prioSides = ["RNI", "COA"].filter((side) => (ON_SERVICE[mk]?.[side] || []).includes(me));
+    const onCCN = roles.includes(ROLE_LABELS.CCN);
     return (
       <div className="sched-col" key={mk}>
         <div className="sched-head">
           <span>{MONTH_FULL[MONTH_KEYS.indexOf(mk)].toUpperCase()}</span>
-          {roles.length > 0 && <span className="sched-tag">Your service month: {roles.join(", ")}</span>}
+          {prioSides.length > 0 && <span className="sched-tag">Your {prioSides.join(" & ")} month (weekend priority)</span>}
+          {onCCN && <span className="sched-tag sched-tag-ccn">Your CCN month (no weekend priority)</span>}
         </div>
         {months[mk].map((d) => (
           <div className="sched-line" key={d.date}>
