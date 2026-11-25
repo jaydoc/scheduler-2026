@@ -35,6 +35,10 @@ export const ATTENDINGS = [
 // divide evenly, and any weekend that cannot be filled from rankings).
 export const SCHEDULER_NAME = "Kandasamy";
 
+// The only account that signs in by email link and sees the Admin Panel.
+// (Must match isAdmin() in firestore.rules.)
+export const ADMIN_EMAIL = "jkandasamy@uabmc.edu";
+
 // ---------------------------------------------------------------------
 // Weekends to allocate. `month` decides which month block it appears in
 // (and whose on-service priority applies). `paid` = UAB paid holiday.

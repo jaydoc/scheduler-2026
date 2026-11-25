@@ -9,12 +9,12 @@ import React, {
 import "./App.css";
 
 import {
-  YEAR, SERVICES, ATTENDINGS, ATTENDING_BY_EMAIL, WEEKENDS, FIXED_BLOCKS,
+  YEAR, SERVICES, ATTENDINGS, ATTENDING_BY_NAME, ADMIN_EMAIL, WEEKENDS, FIXED_BLOCKS,
   ON_SERVICE, SERVICE_ROLES, ROLE_LABELS, MONTH_KEYS, MONTH_ABBR, MONTH_FULL, TOTAL_SLOTS, SCHEDULER_NAME,
   DEFAULT_MAX_ESTIMATE, REPO_URL,
 } from "./config.js";
 import { computeTargets, allocate, estimateAllMax, countSchedule, makeRng } from "./allocate.js";
-import { createStore } from "./store.js";
+import { createStore, personalLinkUrl } from "./store.js";
 
 // ---------------------------------------------------------------------
 // Weekend list in the shape the screens use: months["01"] = [{ day, date, rni, coa, isTaken, detail }]
@@ -510,13 +510,20 @@ export default function App() {
   const store = useMemo(() => createStore(), []);
 
   const [authReady, setAuthReady] = useState(false);
-  const [myEmail, setMyEmail] = useState(null);
+  const [identity, setIdentity] = useState(null);   // { name, key, isAdmin }
+  const myKey = identity?.key || null;
   const [gateEmail, setGateEmail] = useState("");
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [links, setLinks] = useState([]);
+  const [linksBusy, setLinksBusy] = useState(false);
   const [gateErr, setGateErr] = useState("");
   const [linkSentTo, setLinkSentTo] = useState("");
   const [sending, setSending] = useState(false);
 
-  const selected = useMemo(() => (myEmail ? ATTENDING_BY_EMAIL[myEmail] || null : null), [myEmail]);
+  const selected = useMemo(
+    () => (identity && ATTENDING_BY_NAME[identity.name] ? { ...ATTENDING_BY_NAME[identity.name], isAdmin: !!identity.isAdmin } : null),
+    [identity]
+  );
   const me = selected?.name || "";
 
   const [mode, setMode] = useState(MODES.SCH);
@@ -550,18 +557,27 @@ export default function App() {
   // ---- sign-in ----
   useEffect(() => {
     let unsub = () => {};
-    store.init((email) => { setMyEmail(email); setAuthReady(true); }, (msg) => setGateErr(msg))
+    store.init((id) => { setIdentity(id); setAuthReady(true); }, (msg) => setGateErr(msg))
       .then((u) => { unsub = u || unsub; })
       .catch((e) => { setGateErr(String(e.message || e)); setAuthReady(true); });
     return () => unsub();
   }, [store]);
 
   const sendLink = async () => {
+    if (store.mode === "demo") {
+      if (!gateEmail) { setGateErr("Please select a name."); return; }
+      setGateErr("");
+      await store.demoSignIn(gateEmail);
+      return;
+    }
     const email = gateEmail.trim().toLowerCase();
-    if (!ATTENDING_BY_EMAIL[email]) { setGateErr("Please select your name."); return; }
+    if (email !== ADMIN_EMAIL) {
+      setGateErr("Only the scheduler signs in here. Attendings: please use the personal link from your email.");
+      return;
+    }
     setSending(true); setGateErr("");
     try {
-      await store.sendLink(email);
+      await store.sendAdminLink(email);
       setLinkSentTo(email);
     } catch (e) {
       setGateErr(`Could not send the sign-in email: ${e.message}`);
@@ -572,12 +588,12 @@ export default function App() {
 
   // ---- load my draft (and whether I already submitted) BEFORE any saving ----
   useEffect(() => {
-    if (!myEmail) return;
+    if (!myKey) return;
     let cancelled = false;
     setDraftLoaded(false);
     (async () => {
       try {
-        const [draft, sub, m] = await Promise.all([store.getDraft(myEmail), store.getSubmission(myEmail), store.getMeta()]);
+        const [draft, sub, m] = await Promise.all([store.getDraft(myKey), store.getSubmission(myKey), store.getMeta()]);
         if (cancelled) return;
         const src = draft || sub;
         if (src && Array.isArray(src.rankings)) dispatch({ type: "load_from_draft", rankings: src.rankings });
@@ -591,13 +607,13 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [store, myEmail]);
+  }, [store, myKey]);
 
   // ---- autosave (only after the draft has loaded, so nothing gets wiped) ----
   useEffect(() => {
-    if (!myEmail || !draftLoaded) return;
-    store.saveDraft(myEmail, { who: me, rankings, want: want || null }).catch((e) => console.error("Failed to save draft", e));
-  }, [store, myEmail, me, draftLoaded, rankings, want]);
+    if (!myKey || !draftLoaded) return;
+    store.saveDraft(myKey, { who: me, rankings, want: want || null }).catch((e) => console.error("Failed to save draft", e));
+  }, [store, myKey, me, draftLoaded, rankings, want]);
 
   const add = useCallback((date, service) => {
     const avail = getAvailableServicesForDate(date);
@@ -650,7 +666,7 @@ export default function App() {
     const rows = [];
     for (const sub of allSubmissions) {
       for (const r of (Array.isArray(sub.rankings) ? sub.rankings : [])) {
-        rows.push({ name: sub.who, email: sub.email, weekends_wanted: wantLabel(sub.want), date: r.date, service: r.service, rank: r.rank });
+        rows.push({ name: sub.who, email: ATTENDING_BY_NAME[sub.who]?.email || "", weekends_wanted: wantLabel(sub.want), date: r.date, service: r.service, rank: r.rank });
       }
     }
     downloadBlob(new Blob([toCSV(["name", "email", "weekends_wanted", "date", "service", "rank"], rows)], { type: "text/csv" }), `${YEAR}-all-submissions.csv`);
@@ -659,7 +675,7 @@ export default function App() {
   const resetUserData = async (sub) => {
     if (!window.confirm(`Are you sure you want to reset all data for ${sub.who}? This will delete their draft and submission.`)) return;
     try {
-      await store.resetUser(sub.email);
+      await store.resetUser(sub.id);
       alert(`Successfully reset data for ${sub.who}`);
       loadAllSubmissions();
     } catch (e) {
@@ -810,7 +826,7 @@ export default function App() {
   const reallySubmit = async () => {
     if (!selected) return;
     try {
-      await store.submit(myEmail, { year: YEAR, who: selected.name, want, rankings: compressRanks(rankings) });
+      await store.submit(myKey, { year: YEAR, who: selected.name, want, rankings: compressRanks(rankings) });
       setSubmittedAt(new Date());
       setShowSubmitPrompt(false);
       alert("✅ Successfully submitted! Your preferences have been saved. You can change them and submit again until the deadline.");
@@ -818,6 +834,45 @@ export default function App() {
       console.error("Submit error:", e);
       alert("❌ Failed to save. Error: " + e.message + "\n\nPlease contact the admin.");
     }
+  };
+
+  // ---- personal links (admin) ----
+  const activeLinkFor = (name) => links.find((l) => l.name === name && l.active);
+  const loadLinks = async () => {
+    try { setLinks(await store.listLinks()); } catch (e) { alert("Failed to load personal links: " + e.message); }
+  };
+  useEffect(() => { if (selected?.isAdmin && showAdminPanel) loadLinks(); }, [selected?.isAdmin, showAdminPanel]); // eslint-disable-line react-hooks/exhaustive-deps
+  const createMissingLinks = async () => {
+    setLinksBusy(true);
+    try {
+      for (const a of ATTENDINGS) if (!activeLinkFor(a.name)) await store.createLink(a.name);
+      await loadLinks();
+    } catch (e) { alert("Failed to create links: " + e.message); } finally { setLinksBusy(false); }
+  };
+  const reissueLink = async (l) => {
+    if (!window.confirm(`Issue a new link for ${l.name}? Their current link will stop working (their saved preferences move to the new link). You'll need to email them the new one.`)) return;
+    setLinksBusy(true);
+    try { await store.reissueLink(l.token, l.name); await loadLinks(); } catch (e) { alert("Failed to reissue: " + e.message); } finally { setLinksBusy(false); }
+  };
+  const copyText = async (t) => {
+    try { await navigator.clipboard.writeText(t); alert("Link copied."); } catch { window.prompt("Copy this link:", t); }
+  };
+  const composeHref = (a, url) => {
+    const subject = `Your ${YEAR} weekend scheduler link`;
+    const body =
+`Hi Dr. ${a.name},
+
+Here is your personal link for the ${YEAR} weekend scheduler:
+
+${url}
+
+Click it to open your own page — no password needed. It works on your phone or computer and keeps working until the deadline, so you can come back and make changes.
+
+Please don't forward this link; it opens your page only.
+
+Thanks,
+Jegen`;
+    return `mailto:${a.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   const move = (from, to) => dispatch({ type: "reorder", fromIndex: from, toIndex: to });
@@ -840,35 +895,46 @@ export default function App() {
     </div>
   );
 
-  const loginPanel = (
+  const loginPanel = store.mode === "demo" ? (
     <div className="login">
-      <div className="login-title">{store.mode === "demo" ? "Preview mode — pick a name" : "Sign in with your UAB email"}</div>
-      {linkSentTo ? (
-        <div className="login-sent">
-          ✉️ A sign-in link has been sent to <b>{linkSentTo}</b>. Open it on this device to continue.
-          <div className="muted" style={{ marginTop: 6 }}>
-            Not there after a minute? Check your Junk/Quarantine folder, or{" "}
-            <button className="btn-link" onClick={() => setLinkSentTo("")}>send it again</button>.
-          </div>
-        </div>
-      ) : (
-        <div className="id-row">
-          <select className="id-select" value={gateEmail} onChange={(e) => setGateEmail(e.target.value)}>
-            <option value="">Select your name</option>
-            {ATTENDINGS.map((a) => (
-              <option key={a.email} value={a.email}>
-                {a.fullName} ({a.name})
-              </option>
-            ))}
-          </select>
-          <button className="btn btn-green" onClick={sendLink} disabled={sending || !gateEmail}>
-            {store.mode === "demo" ? "Continue" : sending ? "Sending..." : "Email me a sign-in link"}
-          </button>
-        </div>
-      )}
+      <div className="login-title">Preview mode — pick a name</div>
+      <div className="id-row">
+        <select className="id-select" value={gateEmail} onChange={(e) => setGateEmail(e.target.value)}>
+          <option value="">Select a name</option>
+          {ATTENDINGS.map((a) => (
+            <option key={a.name} value={a.name}>{a.fullName} ({a.name})</option>
+          ))}
+        </select>
+        <button className="btn btn-green" onClick={sendLink} disabled={!gateEmail}>Continue</button>
+      </div>
       {gateErr && <div className="error">{gateErr}</div>}
-      {store.mode !== "demo" && !linkSentTo && (
-        <div className="muted">No password needed — we email a one-time link to your UAB address.</div>
+    </div>
+  ) : (
+    <div className="login">
+      <div className="login-title">Open your personal link</div>
+      <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+        Each attending gets a personal link by email from Dr. Kandasamy. <b>Click the link in that email</b> to open your own page —
+        no password needed. It works on your phone or computer, as many times as you like.
+      </div>
+      {gateErr && <div className="error">{gateErr}</div>}
+      <div className="muted" style={{ marginTop: 14 }}>
+        Can't find the email? Contact Dr. Kandasamy.{' '}
+        {!showAdminLogin && <button className="btn-link" onClick={() => setShowAdminLogin(true)}>Scheduler sign-in</button>}
+      </div>
+      {showAdminLogin && (
+        linkSentTo ? (
+          <div className="login-sent" style={{ marginTop: 12 }}>
+            ✉️ A sign-in link has been sent to <b>{linkSentTo}</b>. UAB email can take 5–10 minutes to arrive.
+            If you request another, <b>only the newest email will work</b>.
+          </div>
+        ) : (
+          <div className="id-row" style={{ marginTop: 12 }}>
+            <input className="id-select" type="email" placeholder="Scheduler's UAB email" value={gateEmail} onChange={(e) => setGateEmail(e.target.value)} />
+            <button className="btn btn-green" onClick={sendLink} disabled={sending || !gateEmail}>
+              {sending ? "Sending..." : "Email me a sign-in link"}
+            </button>
+          </div>
+        )
       )}
     </div>
   );
@@ -907,7 +973,10 @@ export default function App() {
               </span>
             )}
             {selected && (
-              <button className="btn" onClick={() => { store.signOut(); setGateEmail(""); setLinkSentTo(""); dispatch({ type: "clear" }); setWant(null); }}>
+              <button className="btn" onClick={() => {
+                if (!selected.isAdmin && store.mode !== "demo" && !window.confirm("Sign out on this device? You'll need your personal link from the email to get back in.")) return;
+                store.signOut(); setGateEmail(""); setLinkSentTo(""); dispatch({ type: "clear" }); setWant(null); setSubmittedAt(null);
+              }}>
                 Sign out
               </button>
             )}
@@ -974,6 +1043,41 @@ export default function App() {
                     <div className="section-body">
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                         <div style={cardStyle}>
+                          <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>🔗 Personal Links</h4>
+                          <p style={{ margin: '0 0 12px', fontSize: 13, color: '#64748b' }}>
+                            Each attending opens their own page with their personal link. Click <b>Compose email</b> to open a
+                            ready-to-send Outlook message for that person. <b>New link</b> replaces a link that was lost or forwarded
+                            (the old one stops working; their saved choices carry over).
+                          </p>
+                          <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                            <button className="btn btn-green" onClick={createMissingLinks} disabled={linksBusy}>
+                              {linksBusy ? 'Working...' : `Create links for everyone who doesn't have one`}
+                            </button>
+                            <button className="btn" onClick={loadLinks} disabled={linksBusy}>Refresh</button>
+                          </div>
+                          <div className="links-table">
+                            {ATTENDINGS.map((a) => {
+                              const l = activeLinkFor(a.name);
+                              const url = l ? personalLinkUrl(l.token) : null;
+                              return (
+                                <div className="links-row" key={a.name}>
+                                  <div className="links-name"><strong>{a.name}</strong><span>{a.email}</span></div>
+                                  {l ? (
+                                    <div className="links-actions">
+                                      <a className="btn btn-green" href={composeHref(a, url)}>Compose email</a>
+                                      <button className="btn" onClick={() => copyText(url)}>Copy link</button>
+                                      <button className="btn-link" onClick={() => reissueLink(l)} disabled={linksBusy}>New link</button>
+                                    </div>
+                                  ) : (
+                                    <span className="muted">No link yet</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div style={cardStyle}>
                           <h4 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700 }}>📊 View All Submissions</h4>
                           <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
                             <button className="btn btn-green" onClick={loadAllSubmissions} disabled={loadingSubmissions}>
@@ -997,7 +1101,7 @@ export default function App() {
                                 {allSubmissions.map((sub) => (
                                   <div key={sub.id} style={{ padding: '8px 0', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <div>
-                                      <strong>{sub.who}</strong> ({sub.email})
+                                      <strong>{sub.who}</strong> ({ATTENDING_BY_NAME[sub.who]?.email})
                                       <br />
                                       <span style={{ fontSize: 12, color: '#64748b' }}>
                                         Wants {wantLabel(sub.want)} · {sub.rankings?.length || 0} preferences ranked
