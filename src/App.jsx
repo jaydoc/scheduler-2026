@@ -262,7 +262,7 @@ function ServiceButtons({ date, rankings, add, remove, compact }) {
             title={off ? `You picked ${mine.service} for this weekend. Click ${mine.service} again to change.` : undefined}
             onClick={() => (on ? remove(date, s) : add(date, s))}
           >
-            {on ? `#${rank} ${s} ✓` : compact ? s : `${s} → Rank`}
+            {on ? <><span className="rank-badge">#{rank}</span>{s} ✓</> : compact ? s : `${s} → Rank`}
           </button>
         );
       })}

@@ -914,6 +914,10 @@ body {
 .btn-svc.on {
   background: #1a5632; color: #ffffff; border-color: #1a5632;
 }
+.rank-badge {
+  display: inline-block; background: #fdb913; color: #033319; font-weight: 800;
+  border-radius: 999px; padding: 0 7px; margin-right: 6px; line-height: 1.5; font-size: 0.9em;
+}
 .btn-svc:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* ---- Schedule view (laid out like the Word document) ---- */
@@ -968,6 +972,7 @@ body {
   .mode-tabs { overflow-x: auto; flex-wrap: nowrap; }
   .tab { flex-shrink: 0; padding: 8px 14px; }
   .id-row { flex-direction: column; align-items: stretch; }
+  .id-row .id-select { flex: 0 0 auto; }
   .id-select, .qa-select { width: 100%; font-size: 16px; }
   .btn-svc { min-height: 38px; }
   .move-btn { font-size: 13px; padding: 6px 10px; }
