@@ -915,8 +915,9 @@ body {
   background: #1a5632; color: #ffffff; border-color: #1a5632;
 }
 .rank-badge {
-  display: inline-block; background: #fdb913; color: #033319; font-weight: 800;
-  border-radius: 999px; padding: 0 7px; margin-right: 6px; line-height: 1.5; font-size: 0.9em;
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.6em; height: 1.6em; padding: 0 0.35em; margin-right: 6px; border-radius: 999px;
+  background: #fdb913; color: #033319; font-weight: 800; font-size: 1.15em; line-height: 1;
 }
 .btn-svc:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
 
