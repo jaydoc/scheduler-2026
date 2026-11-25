@@ -10,7 +10,7 @@ import "./App.css";
 
 import {
   YEAR, SERVICES, ATTENDINGS, ATTENDING_BY_EMAIL, WEEKENDS, FIXED_BLOCKS,
-  ON_SERVICE, MONTH_KEYS, MONTH_ABBR, MONTH_FULL, TOTAL_SLOTS, SCHEDULER_NAME,
+  ON_SERVICE, SERVICE_ROLES, ROLE_LABELS, MONTH_KEYS, MONTH_ABBR, MONTH_FULL, TOTAL_SLOTS, SCHEDULER_NAME,
   DEFAULT_MAX_ESTIMATE, REPO_URL,
 } from "./config.js";
 import { computeTargets, allocate, estimateAllMax, countSchedule, makeRng } from "./allocate.js";
@@ -54,13 +54,21 @@ function compressRanks(list) {
     .map((x, i) => ({ ...x, rank: i + 1 }));
 }
 
-/** Months (and side) in which a person is on service — they get priority then. */
+/** A person's service roles in one month, e.g. ["RNICU Resident"]. */
+function rolesFor(name, mk) {
+  const r = SERVICE_ROLES[mk] || {};
+  return Object.keys(ROLE_LABELS).filter((k) => (r[k] || []).includes(name)).map((k) => ROLE_LABELS[k]);
+}
+
+/** Months a person is on service (incl. CCN), and which weekend side they get priority for. */
 function serviceMonthsFor(name) {
   const out = [];
   for (const mk of MONTH_KEYS) {
+    const roles = rolesFor(name, mk);
+    if (!roles.length) continue;
     const os = ON_SERVICE[mk] || {};
-    const sides = ["RNI", "COA"].filter((s) => (os[s] || []).includes(name));
-    if (sides.length) out.push({ mk, label: MONTH_FULL[MONTH_KEYS.indexOf(mk)], sides });
+    const sides = ["RNI", "COA"].filter((side) => (os[side] || []).includes(name));
+    out.push({ mk, label: MONTH_FULL[MONTH_KEYS.indexOf(mk)], roles, sides });
   }
   return out;
 }
@@ -185,17 +193,149 @@ function reducer(state, action) {
 }
 
 const MODES = {
+  SCH: "schedule",
   CAL: "calendar",
   QA:  "quick",
 };
 
 
+/** "Your Rankings" — shared by every screen. Drag to reorder, or use the arrows (phones). */
+function RankingsPanel({ ctx }) {
+  const { rankings, remove, move, onDragStartItem, onDragOverItem, onDropItem, rankingsNote } = ctx;
+  const list = compressRanks(rankings);
+  return (
+    <div className="mode-side" id="your-rankings">
+      <div className="mode-side-inner">
+        <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
+          Drag (or use the arrows) to reorder. #1 = most preferred, #2 = less preferred, etc.
+        </div>
+        {rankingsNote}
+        <ol className="preview-list">
+          {list.map((r, idx) => (
+            <li
+              key={`${r.date}-${r.service}`}
+              className="preview-item draggable-item"
+              draggable
+              onDragStart={onDragStartItem(idx)}
+              onDragOver={onDragOverItem(idx)}
+              onDrop={onDropItem(idx)}
+            >
+              <DragHandle />
+              <span className="preview-text">#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
+              <span className="move-btns">
+                <button className="move-btn" aria-label="Move up" disabled={idx === 0} onClick={() => move(idx, idx - 1)}>▲</button>
+                <button className="move-btn" aria-label="Move down" disabled={idx === list.length - 1} onClick={() => move(idx, idx + 1)}>▼</button>
+              </span>
+              <button className="btn-link" onClick={() => remove(r.date, r.service)}>
+                remove
+              </button>
+            </li>
+          ))}
+          {rankings.length === 0 && (
+            <li className="preview-item">
+              <span className="muted">No preferences yet.</span>
+            </li>
+          )}
+        </ol>
+      </div>
+    </div>
+  );
+}
+
+/** RNI / COA buttons for one weekend: picking one grays out the other; click again to undo. */
+function ServiceButtons({ date, rankings, add, remove, compact }) {
+  const avail = getAvailableServicesForDate(date);
+  const mine = rankings.find((r) => r.date === date);
+  const rank = mine ? compressRanks(rankings).find((r) => r.date === date)?.rank : null;
+  if (avail.length === 0) return <span className="pill pill-muted">Full</span>;
+  return (
+    <>
+      {[SERVICES.RNI, SERVICES.COA].filter((s) => avail.includes(s)).map((s) => {
+        const on = mine?.service === s;
+        const off = mine && !on;
+        return (
+          <button
+            key={s}
+            className={`btn btn-svc${on ? " on" : ""}`}
+            disabled={off}
+            title={off ? `You picked ${mine.service} for this weekend. Click ${mine.service} again to change.` : undefined}
+            onClick={() => (on ? remove(date, s) : add(date, s))}
+          >
+            {on ? `#${rank} ${s} ✓` : compact ? s : `${s} → Rank`}
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+/** Schedule view: laid out like the group's Word document, two months side by side. */
+function ScheduleMode({ ctx }) {
+  const { rankings, add, remove, me, dismissedInstructions, setDismissedInstructions } = ctx;
+  const pairs = [];
+  for (let i = 0; i < MONTH_KEYS.length; i += 2) pairs.push([MONTH_KEYS[i], MONTH_KEYS[i + 1]]);
+  const col = (mk) => {
+    const roles = rolesFor(me, mk);
+    return (
+      <div className="sched-col" key={mk}>
+        <div className="sched-head">
+          <span>{MONTH_FULL[MONTH_KEYS.indexOf(mk)].toUpperCase()}</span>
+          {roles.length > 0 && <span className="sched-tag">Your service month: {roles.join(", ")}</span>}
+        </div>
+        {months[mk].map((d) => (
+          <div className="sched-line" key={d.date}>
+            <span className="sched-date">
+              {d.day}
+              {d.detail && <span className={d.paid || d.fixed ? "sched-hol" : "sched-detail"}> ({d.detail})</span>}
+            </span>
+            <span className="sched-btns">
+              {d.isTaken ? (
+                <span className="sched-fixed">{d.rni}/{d.coa}</span>
+              ) : (
+                <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} compact />
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
+  return (
+    <div className="mode-layout">
+      <div className="mode-main">
+        {dismissedInstructions.schedule !== true && (
+          <div className="mode-help">
+            <div>
+              <div className="mode-help-title">📄 Schedule View Instructions</div>
+              <ol>
+                <li>This is laid out like the final weekend schedule document</li>
+                <li>Click RNI or COA on a weekend to add it to your rankings — the other service grays out (you can only work one)</li>
+                <li>Click it again to remove it or to switch</li>
+                <li><strong>Please rank as many weekends as possible to maximize your chances of getting your most preferred weekends</strong></li>
+              </ol>
+            </div>
+            <button className="btn-link" style={{ fontSize: 11, whiteSpace: 'nowrap' }}
+              onClick={() => setDismissedInstructions((prev) => ({ ...prev, schedule: true }))}>
+              Dismiss
+            </button>
+          </div>
+        )}
+        {pairs.map(([a, b]) => (
+          <div className="sched-pair" key={a}>{col(a)}{col(b)}</div>
+        ))}
+      </div>
+      <RankingsPanel ctx={ctx} />
+    </div>
+  );
+}
+
 function CalendarMode({ ctx }) {
   const { rankings, add, remove, onDragStartItem, onDragOverItem, onDropItem,
           dismissedInstructions, setDismissedInstructions, rankingsNote } = ctx;
   return (
-    <div style={{ display: "flex", gap: 20 }}>
-      <div className="months" style={{ flex: 1 }}>
+    <div className="mode-layout">
+      <div className="months mode-main">
         {dismissedInstructions[MODES.CAL] !== true && (
           <div style={{ 
             padding: 16, 
@@ -237,7 +377,6 @@ function CalendarMode({ ctx }) {
             <div className="days">
               {months[mk].map((d) => {
                 const avail = getAvailableServicesForDate(d.date);
-                const already = rankings.find(r => r.date === d.date);
                 return (
                   <div key={`${d.date}-${d.rni ?? "x"}-${d.coa ?? "x"}`} className="day">
                     <div className="day-top">
@@ -249,20 +388,9 @@ function CalendarMode({ ctx }) {
                       {d.rni && <Pill>RNI: {d.rni}</Pill>}
                       {d.coa && <Pill>COA: {d.coa}</Pill>}
                       {d.isTaken && <Pill>Full weekend</Pill>}
-                      {already && <Pill>Rank #{already.rank}</Pill>}
                     </div>
                     <div className="svc-actions">
-                      {avail.includes(SERVICES.RNI) && (
-                        <button className="btn btn-svc" onClick={() => add(d.date, SERVICES.RNI)}>
-                          RNI → Rank
-                        </button>
-                      )}
-                      {avail.includes(SERVICES.COA) && (
-                        <button className="btn btn-svc" onClick={() => add(d.date, SERVICES.COA)}>
-                          COA → Rank
-                        </button>
-                      )}
-                      {avail.length === 0 && <span className="pill pill-muted">Full</span>}
+                      <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} />
                     </div>
                   </div>
                 );
@@ -271,38 +399,7 @@ function CalendarMode({ ctx }) {
           </div>
         ))}
       </div>
-      <div style={{ width: 300, flexShrink: 0 }}>
-        <div style={{ position: "sticky", top: 20 }}>
-          <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
-          <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-            Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
-          </div>
-          {rankingsNote}
-          <ol className="preview-list">
-            {compressRanks(rankings).map((r, idx) => (
-              <li
-                key={`${r.date}-${r.service}`}
-                className="preview-item draggable-item"
-                draggable
-                onDragStart={onDragStartItem(idx)}
-                onDragOver={onDragOverItem(idx)}
-                onDrop={onDropItem(idx)}
-              >
-                <DragHandle />
-                <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                <button className="btn-link" onClick={() => remove(r.date, r.service)}>
-                  remove
-                </button>
-              </li>
-            ))}
-            {rankings.length === 0 && (
-              <li className="preview-item">
-                <span className="muted">No preferences yet.</span>
-              </li>
-            )}
-          </ol>
-        </div>
-      </div>
+      <RankingsPanel ctx={ctx} />
     </div>
   );
 }
@@ -317,10 +414,12 @@ function QuickAddMode({ ctx }) {
     useEffect(() => { setDate(""); setService(""); }, [mkey]);
     const avail = date ? getAvailableServicesForDate(date) : [];
     const chosen = date && service ? { date, service } : null;
+    const picked = date ? rankings.find((r) => r.date === date) : null;
+    useEffect(() => { setService(picked ? picked.service : ""); }, [date]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
-      <div style={{ display: "flex", gap: 20 }}>
-        <div style={{ flex: 1 }}>
+      <div className="mode-layout">
+        <div className="mode-main">
           {dismissedInstructions[MODES.QA] !== true && (
             <div style={{ 
               padding: 16, 
@@ -378,49 +477,28 @@ function QuickAddMode({ ctx }) {
                 Service
                 <select className="qa-select" value={service} onChange={e => setService(e.target.value)} disabled={!date}>
                   <option value="">Pick service</option>
-                  {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI}>RNI</option>}
-                  {avail.includes(SERVICES.COA) && <option value={SERVICES.COA}>COA</option>}
+                  {avail.includes(SERVICES.RNI) && <option value={SERVICES.RNI} disabled={picked && picked.service !== SERVICES.RNI}>RNI{picked?.service === SERVICES.RNI ? " (in your rankings)" : ""}</option>}
+                  {avail.includes(SERVICES.COA) && <option value={SERVICES.COA} disabled={picked && picked.service !== SERVICES.COA}>COA{picked?.service === SERVICES.COA ? " (in your rankings)" : ""}</option>}
                 </select>
               </label>
-              <button className="btn btn-green" disabled={!date || !service} onClick={() => add(date, service)}>
-                Add to Rankings
-              </button>
+              {picked ? (
+                <button className="btn" onClick={() => remove(picked.date, picked.service)}>
+                  Remove {fmtLabel(picked.date)} ({picked.service}) from Rankings
+                </button>
+              ) : (
+                <button className="btn btn-green" disabled={!date || !service} onClick={() => add(date, service)}>
+                  Add to Rankings
+                </button>
+              )}
             </div>
-            {chosen && (
+            {chosen && !picked && (
               <div className="qa-note">
                 You are adding: <b>{fmtLabel(chosen.date)}</b> — <b>{service}</b>
               </div>
             )}
           </div>
         </div>
-        <div style={{ width: 300, flexShrink: 0 }}>
-          <div style={{ position: "sticky", top: 20 }}>
-            <h4 style={{ marginTop: 0, marginBottom: 4 }}>Your Rankings</h4>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12, fontStyle: 'italic' }}>
-              Drag to reorder. #1 = most preferred, #2 = less preferred, etc.
-            </div>
-            {rankingsNote}
-            <ol className="preview-list">
-              {compressRanks(rankings).map((r, idx) => (
-                <li
-                  key={`${r.date}-${r.service}`}
-                  className="preview-item draggable-item"
-                  draggable
-                  onDragStart={onDragStartItem(idx)}
-                  onDragOver={onDragOverItem(idx)}
-                  onDrop={onDropItem(idx)}
-                >
-                  <DragHandle />
-                  <span>#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-                  <button className="btn-link" onClick={() => remove(r.date, r.service)}>remove</button>
-                </li>
-              ))}
-              {rankings.length === 0 && (
-                <li className="preview-item"><span className="muted">No preferences yet.</span></li>
-              )}
-            </ol>
-          </div>
-        </div>
+        <RankingsPanel ctx={ctx} />
       </div>
     );
 }
@@ -438,7 +516,7 @@ export default function App() {
   const selected = useMemo(() => (myEmail ? ATTENDING_BY_EMAIL[myEmail] || null : null), [myEmail]);
   const me = selected?.name || "";
 
-  const [mode, setMode] = useState(MODES.CAL);
+  const [mode, setMode] = useState(MODES.SCH);
   const [showLimits, setShowLimits] = useState(true);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [allSubmissions, setAllSubmissions] = useState([]);
@@ -739,13 +817,17 @@ export default function App() {
     }
   };
 
+  const move = (from, to) => dispatch({ type: "reorder", fromIndex: from, toIndex: to });
   const ctx = {
-    rankings, add, remove, onDragStartItem, onDragOverItem, onDropItem,
+    rankings, add, remove, move, me, onDragStartItem, onDragOverItem, onDropItem,
     dismissedInstructions, setDismissedInstructions, rankingsNote,
   };
 
   const ModeTabs = () => (
     <div className="mode-tabs">
+      <button className={mode === MODES.SCH ? "tab active" : "tab"} onClick={() => setMode(MODES.SCH)}>
+        Schedule
+      </button>
       <button className={mode === MODES.CAL ? "tab active" : "tab"} onClick={() => setMode(MODES.CAL)}>
         Calendar
       </button>
@@ -835,7 +917,7 @@ export default function App() {
               href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="badge"
+              className="badge hide-phone"
               style={{
                 textDecoration: 'none',
                 display: 'inline-flex',
@@ -850,7 +932,7 @@ export default function App() {
               </svg>
               GitHub
             </a>
-            <span className="badge">{store.projectId}</span>
+            <span className="badge hide-phone">{store.projectId}</span>
             <button className="btn" onClick={submit}>Submit</button>
             <button className="btn btn-green" onClick={downloadCSV}>Download CSV</button>
           </div>
@@ -1101,11 +1183,11 @@ export default function App() {
                         </div>
                       )}
                       <div className="assigned-list">
-                        <div className="assigned-title">Your {YEAR} service months (you get priority for these weekends):</div>
+                        <div className="assigned-title">Your {YEAR} service months:</div>
                         {myServiceMonths.length ? (
                           <ul>
                             {myServiceMonths.map((m) => (
-                              <li key={m.mk}>{m.label} — {m.sides.map((s) => (s === "RNI" ? "RNI weekends" : "COA weekends")).join(" & ")}</li>
+                              <li key={m.mk}>{m.label} — {m.roles.join(", ")}{m.sides.length > 0 && <> (priority for {m.sides.join(" & ")} weekends that month)</>}</li>
                             ))}
                           </ul>
                         ) : (
@@ -1133,12 +1215,14 @@ export default function App() {
                   </div>
                 )}
 
+                <a className="jump-rankings" href="#your-rankings">Your rankings ({rankings.length}) ↓</a>
                 <div className="section">
                   <div className="section-head">
                     <h3 className="section-title">Select weekends</h3>
                   </div>
                   <div className="section-body">
                     <ModeTabs />
+                    {mode === MODES.SCH && <ScheduleMode ctx={ctx} />}
                     {mode === MODES.CAL && <CalendarMode ctx={ctx} />}
                     {mode === MODES.QA && <QuickAddMode ctx={ctx} />}
                   </div>
@@ -1197,7 +1281,7 @@ export default function App() {
 
             <div style={{ marginBottom: 20 }}>
               <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Assignments per Attending (got / number):</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 8, fontSize: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8, fontSize: 12 }}>
                 {ATTENDINGS.map((a) => {
                   const got = allocCounts[a.name] || 0;
                   const tgt = allocatedSchedule.targets[a.name] || 0;

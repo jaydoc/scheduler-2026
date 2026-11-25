@@ -103,26 +103,34 @@ export const FIXED_BLOCKS = [
 ];
 
 // ---------------------------------------------------------------------
-// Who is on service each month (from the final 2027 monthly schedule).
-// RNI side = RNICU Resident + NNP/BPD; COA side = Quarterback + Harbert.
-// Everyone listed is shown in the Word month heading; only people in
-// ATTENDINGS get weekend priority. Split-month attendings get priority
-// for any weekend in that month.
+// Who is on which service each month (from the final 2027 monthly schedule).
+// Split months list both people.
+//   RES = RNICU Resident, NNP = NNP/BPD-Cards, QB = COA Quarterback,
+//   HARB = COA Harbert, CCN = CCN attending.
 // ---------------------------------------------------------------------
-export const ON_SERVICE = {
-  "01": { RNI: ["Kane", "Bhatia", "Winter"],    COA: ["Hightower", "Black"] },
-  "02": { RNI: ["Philips", "Boone", "Jain"],    COA: ["Stoops", "Kabani"] },
-  "03": { RNI: ["Valcarce", "Ambal"],           COA: ["Arora", "Winter"] },
-  "04": { RNI: ["Sims", "Kane"],                COA: ["Black", "Yazdi"] },
-  "05": { RNI: ["Arora", "Lal"],                COA: ["Kabani", "Summerlin"] },
-  "06": { RNI: ["Schuyler", "Valcarce"],        COA: ["Carlo", "Bhatia", "Winter"] },
-  "07": { RNI: ["Jain", "Shukla"],              COA: ["Willis", "Carlo"] },
-  "08": { RNI: ["Boone", "Sims"],               COA: ["Summerlin", "Carlo"] },
-  "09": { RNI: ["Mackay", "Schuyler"],          COA: ["Black", "Stoops"] },
-  "10": { RNI: ["Kandasamy", "Travers"],        COA: ["Yazdi", "Carlo"] },
-  "11": { RNI: ["Ambal", "Bhatia"],             COA: ["Hightower", "Black"] },
-  "12": { RNI: ["Travers", "Boone"],            COA: ["Kandasamy", "Kabani"] },
+export const SERVICE_ROLES = {
+  "01": { RES: ["Kane", "Bhatia"], NNP: ["Winter"],        QB: ["Hightower"],        HARB: ["Black"],     CCN: ["Salas"] },
+  "02": { RES: ["Philips"],        NNP: ["Boone", "Jain"], QB: ["Stoops"],           HARB: ["Kabani"],    CCN: ["Kandasamy"] },
+  "03": { RES: ["Valcarce"],       NNP: ["Ambal"],         QB: ["Arora"],            HARB: ["Winter"],    CCN: ["Boone"] },
+  "04": { RES: ["Sims"],           NNP: ["Kane"],          QB: ["Black"],            HARB: ["Yazdi"],     CCN: ["Willis"] },
+  "05": { RES: ["Arora"],          NNP: ["Lal"],           QB: ["Kabani"],           HARB: ["Summerlin"], CCN: ["Shukla", "Mackay"] },
+  "06": { RES: ["Schuyler"],       NNP: ["Valcarce"],      QB: ["Carlo", "Bhatia"],  HARB: ["Winter"],    CCN: ["Shukla"] },
+  "07": { RES: ["Jain"],           NNP: ["Shukla"],        QB: ["Willis"],           HARB: ["Carlo"],     CCN: ["Winter"] },
+  "08": { RES: ["Boone"],          NNP: ["Sims"],          QB: ["Summerlin"],        HARB: ["Carlo"],     CCN: ["Arora"] },
+  "09": { RES: ["Mackay"],         NNP: ["Schuyler"],      QB: ["Black"],            HARB: ["Stoops"],    CCN: ["Lal"] },
+  "10": { RES: ["Kandasamy"],      NNP: ["Travers"],       QB: ["Yazdi"],            HARB: ["Carlo"],     CCN: ["Winter"] },
+  "11": { RES: ["Ambal"],          NNP: ["Bhatia"],        QB: ["Hightower"],        HARB: ["Black"],     CCN: ["Kane"] },
+  "12": { RES: ["Travers"],        NNP: ["Boone"],         QB: ["Kandasamy"],        HARB: ["Kabani", "Kandasamy"], CCN: ["Mackay", "Jain"] },
 };
+
+export const ROLE_LABELS = { RES: "RNICU Resident", NNP: "NNP/BPD", QB: "COA QB", HARB: "COA Harbert", CCN: "CCN" };
+
+// Weekend priority: RNI weekends -> RNICU Resident + NNP/BPD attendings;
+// COA weekends -> QB + Harbert attendings. CCN gives no weekend priority.
+const uniq = (a) => [...new Set(a)];
+export const ON_SERVICE = Object.fromEntries(
+  Object.entries(SERVICE_ROLES).map(([mk, r]) => [mk, { RNI: uniq([...r.RES, ...r.NNP]), COA: uniq([...r.QB, ...r.HARB]) }])
+);
 
 // Estimate shown to "as many as possible" people before the real share is
 // computed (admin can publish the real number from the Admin Panel).
