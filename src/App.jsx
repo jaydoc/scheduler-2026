@@ -534,6 +534,7 @@ export default function App() {
   const [allocatedSchedule, setAllocatedSchedule] = useState(null);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
   const [showSubmitPrompt, setShowSubmitPrompt] = useState(false);
+  const [showWantNote, setShowWantNote] = useState(false);
   const [dismissedInstructions, setDismissedInstructions] = useState({});
   const [{ rankings }, dispatch] = useReducer(reducer, initialState);
   const [want, setWant] = useState(null);            // { type: "number", n } | { type: "max" }
@@ -1135,7 +1136,7 @@ Jegen`;
                           <div style={{ fontSize: 13, marginBottom: 10 }}>
                             <b>{TOTAL_SLOTS}</b> weekend slots to allocate ({WEEKENDS.length} weekends × RNI/COA; Christmas and New Year not counted).
                             <br />
-                            For the first email — if everyone wanted as many as possible: <b>{allMax.text}</b>.
+                            Worst case, if all {ATTENDINGS.length} chose "as many as possible": <b>{allMax.text}</b>. Attendings are told to expect at most {DEFAULT_MAX_ESTIMATE}.
                           </div>
                           {targetsInfo ? (
                             <div style={{ fontSize: 13 }}>
@@ -1239,7 +1240,7 @@ Jegen`;
                     <div className="section-head">
                       <h3 className="section-title">Your weekends</h3>
                       <div className="section-right">
-                        <button className="btn btn-amber" onClick={() => setShowLimits(false)} disabled={!want}>OK</button>
+                        <button className="btn btn-amber" onClick={() => setShowWantNote(true)} disabled={!want}>OK</button>
                       </div>
                     </div>
                     <div className="section-body">
@@ -1248,7 +1249,7 @@ Jegen`;
                           <span className="limit-label">How many weekends do you want?</span>
                           <select className="qa-select" value={wantValue} onChange={(e) => onWantChange(e.target.value)}>
                             <option value="">Choose...</option>
-                            {Array.from({ length: 16 }, (_, i) => i).map((n) => (
+                            {Array.from({ length: 11 }, (_, i) => i).map((n) => (
                               <option key={n} value={n}>{n}</option>
                             ))}
                             <option value={WANT_MAX}>As many as possible</option>
@@ -1319,6 +1320,24 @@ Jegen`;
           </div>
         </div>
       </div>
+
+      {showWantNote && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Before you start ranking</h3>
+            <p style={{ fontSize: 15 }}>
+              Most people will typically get at most <b>{meta.maxShare || DEFAULT_MAX_ESTIMATE}</b> weekends.
+            </p>
+            <p style={{ fontSize: 14, color: '#334155' }}>
+              Specific numbers are honored up to the share of those choosing "As many as possible."
+              Asking for more than that counts as "As many as possible."
+            </p>
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button className="btn btn-green" onClick={() => { setShowWantNote(false); setShowLimits(false); }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSubmitPrompt && (
         <div className="modal-overlay">

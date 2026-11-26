@@ -136,9 +136,10 @@ export const ON_SERVICE = Object.fromEntries(
   Object.entries(SERVICE_ROLES).map(([mk, r]) => [mk, { RNI: uniq([...r.RES, ...r.NNP]), COA: uniq([...r.QB, ...r.HARB]) }])
 );
 
-// Estimate shown to "as many as possible" people before the real share is
-// computed (admin can publish the real number from the Admin Panel).
-export const DEFAULT_MAX_ESTIMATE = "5–6";
+// The most people will typically get (shown in the pop-up after choosing a number,
+// and as the estimate for "as many as possible" until the admin publishes the
+// real share from the Admin Panel).
+export const DEFAULT_MAX_ESTIMATE = "7–8";
 
 // The live address. Preview mode (?demo) is switched off here so attendings
 // can't end up in it by accident; it still works on Vercel preview links.

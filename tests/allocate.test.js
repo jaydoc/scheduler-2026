@@ -45,13 +45,30 @@ test("nobody in max group -> leftover goes to scheduler", () => {
   assert.equal(r.targets.Kandasamy, 5);
 });
 
-test("over-request -> even cap, largest trimmed first", () => {
+test("over-request -> everyone cut to a common level, max group not starved", () => {
   const names = ["A", "B", "C", "Kandasamy"];
   const requests = { A: { type: "number", n: 9 }, B: { type: "number", n: 6 }, C: { type: "number", n: 2 }, Kandasamy: { type: "max" } };
   const r = computeTargets({ names, requests, totalSlots: 12, scheduler: "Kandasamy" });
-  assert.equal(r.targets.C, 2);
-  assert.equal(r.targets.A, 5); assert.equal(r.targets.B, 5); // cap 5, sum 12
-  assert.equal(r.targets.Kandasamy, 0);
+  assert.equal(r.targets.C, 2);                    // under the level: full request
+  assert.equal(r.targets.A, 3); assert.equal(r.targets.B, 3);
+  assert.equal(r.targets.Kandasamy, 4);            // level 3 + the one extra
+  assert.equal(Object.values(r.targets).reduce((a, b) => a + b), 12);
+});
+
+test("specific number above the 'as many as possible' share is capped at the share", () => {
+  const names = ["A", "B", "C"];
+  const requests = { A: { type: "number", n: 12 }, B: { type: "max" }, C: { type: "max" } };
+  const r = computeTargets({ names, requests, totalSlots: 20, scheduler: "Kandasamy", seed: "q" });
+  for (const n of names) assert.ok([6, 7].includes(r.targets[n]), `${n}=${r.targets[n]}`);
+  assert.equal(Object.values(r.targets).reduce((a, b) => a + b), 20);
+  assert.deepEqual(r.capped, ["A"]);
+});
+
+test("specific number at or below the share is granted in full", () => {
+  const names = ["A", "B", "C"];
+  const requests = { A: { type: "number", n: 4 }, B: { type: "max" }, C: { type: "max" } };
+  const r = computeTargets({ names, requests, totalSlots: 20, scheduler: "Kandasamy" });
+  assert.equal(r.targets.A, 4); assert.equal(r.targets.B + r.targets.C, 16);
 });
 
 test("lottery is deterministic and seed-dependent", () => {
