@@ -1002,3 +1002,8 @@ body {
 .links-name span { font-size: 12px; color: #64748b; }
 .links-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .links-actions .btn { text-decoration: none; font-size: 13px; padding: 6px 12px; }
+
+.closed-banner {
+  background: #fef3c7; border: 1px solid #fcd34d; color: #78350f;
+  border-radius: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.5;
+}

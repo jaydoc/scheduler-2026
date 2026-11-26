@@ -11,7 +11,7 @@ import "./App.css";
 import {
   YEAR, SERVICES, ATTENDINGS, ATTENDING_BY_NAME, ADMIN_EMAIL, WEEKENDS, FIXED_BLOCKS,
   ON_SERVICE, SERVICE_ROLES, ROLE_LABELS, MONTH_KEYS, MONTH_ABBR, MONTH_FULL, TOTAL_SLOTS, SCHEDULER_NAME,
-  DEFAULT_MAX_ESTIMATE,
+  DEFAULT_MAX_ESTIMATE, DEADLINE_MS, DEADLINE_LABEL,
 } from "./config.js";
 import { computeTargets, allocate, estimateAllMax, countSchedule, makeRng } from "./allocate.js";
 import { createStore, personalLinkUrl } from "./store.js";
@@ -201,7 +201,7 @@ const MODES = {
 
 /** "Your Rankings" — shared by every screen. Drag to reorder, or use the arrows (phones). */
 function RankingsPanel({ ctx }) {
-  const { rankings, remove, move, onDragStartItem, onDragOverItem, onDropItem, rankingsNote } = ctx;
+  const { rankings, remove, move, onDragStartItem, onDragOverItem, onDropItem, rankingsNote, locked } = ctx;
   const list = compressRanks(rankings);
   return (
     <div className="mode-side" id="your-rankings">
@@ -216,20 +216,22 @@ function RankingsPanel({ ctx }) {
             <li
               key={`${r.date}-${r.service}`}
               className="preview-item draggable-item"
-              draggable
+              draggable={!locked}
               onDragStart={onDragStartItem(idx)}
               onDragOver={onDragOverItem(idx)}
               onDrop={onDropItem(idx)}
             >
               <DragHandle />
               <span className="preview-text">#{r.rank} — {fmtLabel(r.date)} ({r.service})</span>
-              <span className="move-btns">
+              {!locked && <span className="move-btns">
                 <button className="move-btn" aria-label="Move up" disabled={idx === 0} onClick={() => move(idx, idx - 1)}>▲</button>
                 <button className="move-btn" aria-label="Move down" disabled={idx === list.length - 1} onClick={() => move(idx, idx + 1)}>▼</button>
-              </span>
-              <button className="btn-link" onClick={() => remove(r.date, r.service)}>
-                remove
-              </button>
+              </span>}
+              {!locked && (
+                <button className="btn-link" onClick={() => remove(r.date, r.service)}>
+                  remove
+                </button>
+              )}
             </li>
           ))}
           {rankings.length === 0 && (
@@ -244,7 +246,7 @@ function RankingsPanel({ ctx }) {
 }
 
 /** RNI / COA buttons for one weekend: picking one grays out the other; click again to undo. */
-function ServiceButtons({ date, rankings, add, remove, compact }) {
+function ServiceButtons({ date, rankings, add, remove, compact, locked }) {
   const avail = getAvailableServicesForDate(date);
   const mine = rankings.find((r) => r.date === date);
   const rank = mine ? compressRanks(rankings).find((r) => r.date === date)?.rank : null;
@@ -258,7 +260,7 @@ function ServiceButtons({ date, rankings, add, remove, compact }) {
           <button
             key={s}
             className={`btn btn-svc${on ? " on" : ""}`}
-            disabled={off}
+            disabled={off || locked}
             title={off ? `You picked ${mine.service} for this weekend. Click ${mine.service} again to change.` : undefined}
             onClick={() => (on ? remove(date, s) : add(date, s))}
           >
@@ -296,7 +298,7 @@ function ScheduleMode({ ctx }) {
               {d.isTaken ? (
                 <span className="sched-fixed">{d.rni}/{d.coa}</span>
               ) : (
-                <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} compact />
+                <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} compact locked={ctx.locked} />
               )}
             </span>
           </div>
@@ -393,7 +395,7 @@ function CalendarMode({ ctx }) {
                       {d.isTaken && <Pill>Full weekend</Pill>}
                     </div>
                     <div className="svc-actions">
-                      <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} />
+                      <ServiceButtons date={d.date} rankings={rankings} add={add} remove={remove} locked={ctx.locked} />
                     </div>
                   </div>
                 );
@@ -489,7 +491,7 @@ function QuickAddMode({ ctx }) {
                   Remove {fmtLabel(picked.date)} ({picked.service}) from Rankings
                 </button>
               ) : (
-                <button className="btn btn-green" disabled={!date || !service} onClick={() => add(date, service)}>
+                <button className="btn btn-green" disabled={!date || !service || ctx.locked} onClick={() => add(date, service)}>
                   Add to Rankings
                 </button>
               )}
@@ -525,6 +527,11 @@ export default function App() {
     [identity]
   );
   const me = selected?.name || "";
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(id); }, []);
+  const locked = !!selected && !selected.isAdmin && now >= DEADLINE_MS;
+  const lockedRef = useRef(false);
+  lockedRef.current = locked;
 
   const [mode, setMode] = useState(MODES.SCH);
   const [showLimits, setShowLimits] = useState(true);
@@ -550,7 +557,7 @@ export default function App() {
   const onDropItem = (index) => () => {
     const from = dragIndex.current;
     const to = index;
-    if (from == null || from === to) return;
+    if (from == null || from === to || lockedRef.current) return;
     dispatch({ type: "reorder", fromIndex: from, toIndex: to });
     dragIndex.current = null;
   };
@@ -612,17 +619,19 @@ export default function App() {
 
   // ---- autosave (only after the draft has loaded, so nothing gets wiped) ----
   useEffect(() => {
-    if (!myKey || !draftLoaded) return;
+    if (!myKey || !draftLoaded || locked) return;
     store.saveDraft(myKey, { who: me, rankings, want: want || null }).catch((e) => console.error("Failed to save draft", e));
-  }, [store, myKey, me, draftLoaded, rankings, want]);
+  }, [store, myKey, me, draftLoaded, rankings, want, locked]);
 
   const add = useCallback((date, service) => {
+    if (lockedRef.current) return;
     const avail = getAvailableServicesForDate(date);
     if (!avail.includes(service)) return;
     dispatch({ type: "add", date, service });
   }, []);
 
   const remove = useCallback((date, service) => {
+    if (lockedRef.current) return;
     dispatch({ type: "remove", date, service });
   }, []);
 
@@ -817,6 +826,7 @@ export default function App() {
   };
 
   const submit = () => {
+    if (locked) { alert(`Submissions closed on ${DEADLINE_LABEL}. Your saved preferences are kept.`); return; }
     if (!authReady || !selected) { alert("Sign in first."); return; }
     if (!want) { alert('Please choose "How many weekends do you want?" first.'); setShowLimits(true); return; }
     const wantsSome = want.type === WANT_MAX || want.n > 0;
@@ -876,9 +886,9 @@ Jegen`;
     return `mailto:${a.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
-  const move = (from, to) => dispatch({ type: "reorder", fromIndex: from, toIndex: to });
+  const move = (from, to) => { if (!locked) dispatch({ type: "reorder", fromIndex: from, toIndex: to }); };
   const ctx = {
-    rankings, add, remove, move, me, onDragStartItem, onDragOverItem, onDropItem,
+    rankings, add, remove, move, me, locked, onDragStartItem, onDragOverItem, onDropItem,
     dismissedInstructions, setDismissedInstructions, rankingsNote,
   };
 
@@ -1195,7 +1205,20 @@ Jegen`;
                   </div>
                 )}
 
-                {!dismissedInstructions.overview && (
+                {locked && (
+                  <div className="section">
+                    <div className="section-body">
+                      <div className="closed-banner">
+                        <b>Submissions are closed</b> (deadline was {DEADLINE_LABEL}).
+                        {submittedAt
+                          ? <> Your submitted preferences are saved below; you can view them but no longer change them.</>
+                          : <> You can view your page but no longer change it. Contact Dr. Kandasamy if you need help.</>}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {!locked && !dismissedInstructions.overview && (
                   <div className="section">
                     <div className="section-body">
                       <div style={{
@@ -1219,7 +1242,7 @@ Jegen`;
                                 <strong>Rank as many weekends as you can.</strong> The more you rank, the more likely you are
                                 to end up with weekends you actually want, rather than whatever is left over.
                               </li>
-                              <li>Click <strong>Submit</strong> when you're done. You can still make changes and resubmit until the deadline.</li>
+                              <li>Click <strong>Submit</strong> when you're done. You can still make changes and resubmit until the deadline: <strong>{DEADLINE_LABEL}</strong>.</li>
                             </ol>
                           </div>
                         </div>
@@ -1247,7 +1270,7 @@ Jegen`;
                       <div className="limits-summary">
                         <div className="limit-item">
                           <span className="limit-label">How many weekends do you want?</span>
-                          <select className="qa-select" value={wantValue} onChange={(e) => onWantChange(e.target.value)}>
+                          <select className="qa-select" value={wantValue} disabled={locked} onChange={(e) => onWantChange(e.target.value)}>
                             <option value="">Choose...</option>
                             {Array.from({ length: 11 }, (_, i) => i).map((n) => (
                               <option key={n} value={n}>{n}</option>
@@ -1262,6 +1285,9 @@ Jegen`;
                         <div className="limit-item">
                           <span className="limit-label">Submitted:</span>
                           <span className="limit-value">{submittedAt ? submittedAt.toLocaleDateString() : "not yet"}</span>
+                          <span className="limit-label" style={{ marginTop: 6, textTransform: 'none', letterSpacing: 0 }}>
+                            {locked ? "Closed" : "Due"} {DEADLINE_LABEL}
+                          </span>
                         </div>
                       </div>
                       {want?.type === WANT_MAX && (

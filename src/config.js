@@ -141,6 +141,12 @@ export const ON_SERVICE = Object.fromEntries(
 // real share from the Admin Panel).
 export const DEFAULT_MAX_ESTIMATE = "7–8";
 
+// Submission deadline. After this, attendings can view but not change anything
+// (the admin still can). Keep in step with the date in firestore.rules.
+export const DEADLINE = "2026-12-09T17:00:00-06:00";
+export const DEADLINE_LABEL = "Wednesday, Dec 9, 2026 at 5 PM CST";
+export const DEADLINE_MS = Date.parse(DEADLINE);
+
 // The live address. Preview mode (?demo) is switched off here so attendings
 // can't end up in it by accident; it still works on Vercel preview links.
 export const LIVE_HOSTS = ["uabneo-scheduler-2027.vercel.app"];
