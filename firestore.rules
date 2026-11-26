@@ -15,6 +15,8 @@ service cloud.firestore {
     }
     function linkPath(t) { return /databases/$(database)/documents/weekend2027_links/$(t); }
     function linkActive(t) { return exists(linkPath(t)) && get(linkPath(t)).data.active == true; }
+    // Deadline: Wednesday, Dec 9, 2026, 5 PM CST (= 23:00 UTC). Attendings can't save after this; admin can.
+    function beforeDeadline() { return request.time < timestamp.value(1796857200000); }
     function validEntry(t) {
       return request.resource.data.keys().hasOnly(['who', 'token', 'want', 'rankings', 'ts', 'year'])
         && request.resource.data.who == get(linkPath(t)).data.name
@@ -31,12 +33,12 @@ service cloud.firestore {
 
     match /weekend2027_drafts/{t} {
       allow get: if isAdmin() || linkActive(t);
-      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t));
+      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t) && beforeDeadline());
       allow list, delete: if isAdmin();
     }
     match /weekend2027_submissions/{t} {
       allow get: if isAdmin() || linkActive(t);
-      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t));
+      allow create, update: if isAdmin() || (linkActive(t) && validEntry(t) && beforeDeadline());
       allow list, delete: if isAdmin();
     }
 
