@@ -6,6 +6,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import "./App.css";
 
 import {
@@ -78,6 +79,11 @@ function wantLabel(want) {
   if (!want) return "not chosen yet";
   if (want.type === WANT_MAX) return "as many as possible";
   return `${want.n} weekend${want.n === 1 ? "" : "s"}`;
+}
+
+/** Fingerprint of what someone has chosen, to tell whether it has changed since they submitted. */
+function choiceSig(rankings, want) {
+  return JSON.stringify({ w: want || null, r: compressRanks(rankings || []).map((x) => [x.date, x.service]) });
 }
 
 function downloadBlob(blob, filename) {
@@ -547,6 +553,7 @@ export default function App() {
   const [want, setWant] = useState(null);            // { type: "number", n } | { type: "max" }
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [submittedAt, setSubmittedAt] = useState(null);
+  const [submittedSig, setSubmittedSig] = useState(null);
   const [meta, setMeta] = useState({});
   const [seed, setSeed] = useState(String(YEAR));
   const [fillShortFirst, setFillShortFirst] = useState(false);
@@ -607,6 +614,7 @@ export default function App() {
         if (src && Array.isArray(src.rankings)) dispatch({ type: "load_from_draft", rankings: src.rankings });
         if (src?.want) setWant(src.want);
         if (sub?.ts) setSubmittedAt(sub.ts.toDate ? sub.ts.toDate() : new Date());
+        if (sub) setSubmittedSig(choiceSig(sub.rankings, sub.want));
         setMeta(m || {});
       } catch (e) {
         console.error("Failed to load draft", e);
@@ -839,6 +847,7 @@ export default function App() {
     try {
       await store.submit(myKey, { year: YEAR, who: selected.name, want, rankings: compressRanks(rankings) });
       setSubmittedAt(new Date());
+      setSubmittedSig(choiceSig(rankings, want));
       setShowSubmitPrompt(false);
       alert("✅ Successfully submitted! Your preferences have been saved. You can change them and submit again until the deadline.");
     } catch (e) {
@@ -887,6 +896,9 @@ Jegen`;
   };
 
   const move = (from, to) => { if (!locked) dispatch({ type: "reorder", fromIndex: from, toIndex: to }); };
+  const anyModalOpen = showWantNote || showSubmitPrompt || showAllocationModal;
+  const showSubmitReminder = !!selected && draftLoaded && !locked && !anyModalOpen && rankings.length > 0 && choiceSig(rankings, want) !== submittedSig;
+
   const ctx = {
     rankings, add, remove, move, me, locked, onDragStartItem, onDragOverItem, onDropItem,
     dismissedInstructions, setDismissedInstructions, rankingsNote,
@@ -961,7 +973,7 @@ Jegen`;
   const cardStyle = { background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #e2e8f0' };
 
   return (
-    <div className="page">
+    <div className={showSubmitReminder ? "page has-reminder" : "page"}>
       <div className="band" />
       <div className="container">
         <div className="topbar">
@@ -1205,6 +1217,18 @@ Jegen`;
                   </div>
                 )}
 
+                {showSubmitReminder && createPortal(
+                  <div className="submit-reminder">
+                    <span>
+                      {submittedSig
+                        ? <><b>You've made changes since you last submitted.</b> Click Submit again so they count.</>
+                        : <><b>You haven't submitted yet.</b> Your choices only count once you click Submit.</>}
+                    </span>
+                    <button className="btn btn-green" onClick={submit}>Submit</button>
+                  </div>,
+                  document.body
+                )}
+
                 {locked && (
                   <div className="section">
                     <div className="section-body">
@@ -1329,7 +1353,12 @@ Jegen`;
                   </div>
                 )}
 
-                <a className="jump-rankings" href="#your-rankings">Your rankings ({rankings.length}) ↓</a>
+                {createPortal(
+                  <a className={showSubmitReminder ? "jump-rankings above-reminder" : "jump-rankings"} href="#your-rankings">
+                    Your rankings ({rankings.length}) ↓
+                  </a>,
+                  document.body
+                )}
                 <div className="section">
                   <div className="section-head">
                     <h3 className="section-title">Select weekends</h3>

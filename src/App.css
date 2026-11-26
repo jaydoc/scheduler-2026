@@ -1007,3 +1007,21 @@ body {
   background: #fef3c7; border: 1px solid #fcd34d; color: #78350f;
   border-radius: 12px; padding: 14px 16px; font-size: 14px; line-height: 1.5;
 }
+
+.submit-reminder {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; z-index: 60;
+  width: min(760px, calc(100% - 24px));
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: #fef3c7; border: 1px solid #fcd34d; color: #78350f;
+  border-radius: 14px; padding: 10px 14px; font-size: 14px;
+  box-shadow: 0 8px 24px rgba(120, 53, 15, 0.25);
+}
+.page.has-reminder { padding-bottom: 96px; }
+@media (max-width: 700px) {
+  .submit-reminder { font-size: 13px; bottom: 10px; }
+  .jump-rankings.above-reminder { bottom: 96px; }
+  .page.has-reminder { padding-bottom: 150px; }
+}
+.submit-reminder .btn { flex-shrink: 0; }
+
+.modal-overlay { z-index: 100; }
