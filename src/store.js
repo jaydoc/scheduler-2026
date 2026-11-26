@@ -109,8 +109,14 @@ function firebaseStore() {
   async function adminKey() {
     // The admin's own preferences live under their personal link key; create one if needed.
     const snap = await getDocs(collection(db, COL.links));
-    let mine = null;
-    snap.forEach((d) => { const v = d.data(); if (v.name === ATTENDINGS.find((a) => a.email.toLowerCase() === ADMIN_EMAIL)?.name && v.active) mine = d.id; });
+    // If there is more than one active link, always use the newest one.
+    let mine = null, mineTs = -1;
+    const myName = ATTENDINGS.find((a) => a.email.toLowerCase() === ADMIN_EMAIL)?.name;
+    snap.forEach((d) => {
+      const v = d.data();
+      const ts = v.created?.toMillis?.() ?? 0;
+      if (v.name === myName && v.active && ts >= mineTs) { mine = d.id; mineTs = ts; }
+    });
     if (mine) return mine;
     const me = ATTENDINGS.find((a) => a.email.toLowerCase() === ADMIN_EMAIL);
     const t = newToken();
@@ -270,7 +276,7 @@ function demoStore() {
     async signOut() { ls.removeItem(k("me")); forgetToken(); listener?.(null); },
     async getDraft(key) { return get(k("draft", key)); },
     async saveDraft(key, data) { set(k("draft", key), { ...data, token: key }); },
-    async submit(key, data) { set(k("sub", key), { ...data, token: key }); },
+    async submit(key, data) { set(k("sub", key), { ...data, token: key, ts: Date.now() }); },
     async getSubmission(key) { return get(k("sub", key)); },
     async listSubmissions() {
       const out = [];
