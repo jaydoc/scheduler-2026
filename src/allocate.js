@@ -64,6 +64,15 @@ function drawLottery(names, k, seed) {
 
 // ---------- 1. targets ----------
 /**
+ * Everyone gets what they asked for, up to a common level L that uses up all
+ * the slots; nobody gets more than L (+1). "As many as possible" = no limit.
+ * So a specific number is honoured only up to what the "as many as possible"
+ * group receives, and if requests exceed the slots everyone is cut evenly.
+ * When the slots don't divide evenly, those at the level get one extra:
+ * the scheduler first (if at the level), the rest by lottery.
+ * If nobody chose "as many as possible" and specific requests leave weekends
+ * over, the leftover goes to the scheduler.
+ *
  * @param names        all attending short names
  * @param requests     { name: { type: "none"|"number"|"max", n?: number } }
  * @param totalSlots   number of weekend slots to allocate
@@ -72,53 +81,43 @@ function drawLottery(names, k, seed) {
  */
 export function computeTargets({ names, requests, totalSlots, scheduler, seed = "2027" }) {
   const req = (n) => requests[n] || { type: "none" };
+  const want = (n) => (req(n).type === "max" ? Infinity : req(n).type === "number" ? Math.max(0, req(n).n || 0) : 0);
   const targets = Object.fromEntries(names.map((n) => [n, 0]));
   const notes = [];
-  const definite = names.filter((n) => req(n).type === "number" && (req(n).n || 0) > 0);
+  const definite = names.filter((n) => req(n).type === "number" && want(n) > 0);
   const maxGroup = names.filter((n) => req(n).type === "max");
   const noResponse = names.filter((n) => !requests[n]);
-  const definiteSum = definite.reduce((s, n) => s + req(n).n, 0);
+  const definiteSum = definite.reduce((s, n) => s + want(n), 0);
+  const active = [...definite, ...maxGroup];
 
-  let cap = null;
-  let extraNames = [];
-  let share = null;
-  let leftoverToScheduler = 0;
-
-  if (definiteSum > totalSlots) {
-    // Even cut: find the highest common cap L with sum(min(n, L)) <= slots.
-    let L = Math.max(...definite.map((n) => req(n).n));
-    while (L > 0 && definite.reduce((s, n) => s + Math.min(req(n).n, L), 0) > totalSlots) L--;
-    cap = L;
-    definite.forEach((n) => (targets[n] = Math.min(req(n).n, L)));
-    let rem = totalSlots - definite.reduce((s, n) => s + targets[n], 0);
-    const trimmed = definite.filter((n) => req(n).n > L);
-    if (rem > 0 && trimmed.length) {
-      let pool = trimmed;
-      if (pool.includes(scheduler)) { targets[scheduler] += 1; rem -= 1; extraNames.push(scheduler); pool = pool.filter((n) => n !== scheduler); }
-      const drawn = drawLottery(pool, rem, `${seed}:cut`);
-      drawn.forEach((n) => (targets[n] += 1));
-      extraNames.push(...drawn);
-    }
-    notes.push(`Specific requests (${definiteSum}) exceed the ${totalSlots} slots, so every request was capped at ${L}${extraNames.length ? ` (+1 for ${extraNames.join(", ")})` : ""}. The "as many as possible" group gets none.`);
-  } else {
-    definite.forEach((n) => (targets[n] = req(n).n));
-    const R = totalSlots - definiteSum;
-    if (maxGroup.length === 0) {
-      leftoverToScheduler = R;
-      if (R > 0) { targets[scheduler] += R; notes.push(`${R} weekend(s) left after all specific requests go to ${scheduler}.`); }
-    } else {
-      const q = Math.floor(R / maxGroup.length);
-      let r = R % maxGroup.length;
-      maxGroup.forEach((n) => (targets[n] = q));
-      let pool = maxGroup;
-      if (r > 0 && maxGroup.includes(scheduler)) { targets[scheduler] += 1; r -= 1; extraNames.push(scheduler); pool = pool.filter((n) => n !== scheduler); }
-      const drawn = drawLottery(pool, r, `${seed}:max`);
-      drawn.forEach((n) => (targets[n] += 1));
-      extraNames.push(...drawn);
-      share = { remaining: R, groupSize: maxGroup.length, base: q, extraCount: R % maxGroup.length, extraNames };
-    }
+  // Nobody wants "as many as possible" and specific requests fit: grant them; leftover to scheduler.
+  if (maxGroup.length === 0 && definiteSum <= totalSlots) {
+    definite.forEach((n) => (targets[n] = want(n)));
+    const left = totalSlots - definiteSum;
+    if (left > 0 && scheduler) { targets[scheduler] += left; notes.push(`${left} weekend(s) left after all specific requests go to ${scheduler}.`); }
+    return { targets, definite, definiteSum, maxGroup, noResponse, level: null, capped: [], share: null, leftoverToScheduler: left, notes };
   }
-  return { targets, definite, definiteSum, maxGroup, noResponse, cap, share, leftoverToScheduler, notes };
+
+  // Common level L: the largest with sum(min(want, L)) <= slots.
+  const total = (L) => active.reduce((s, n) => s + Math.min(want(n), L), 0);
+  let L = 0;
+  while (total(L + 1) <= totalSlots) L++;
+  active.forEach((n) => (targets[n] = Math.min(want(n), L)));
+  let rem = totalSlots - total(L);
+  const atLevel = active.filter((n) => want(n) > L);       // everyone who wanted more than L
+  const extraNames = [];
+  let pool = atLevel;
+  if (rem > 0 && pool.includes(scheduler)) { targets[scheduler] += 1; rem -= 1; extraNames.push(scheduler); pool = pool.filter((n) => n !== scheduler); }
+  const drawn = drawLottery(pool, rem, `${seed}:max`);
+  drawn.forEach((n) => (targets[n] += 1));
+  extraNames.push(...drawn);
+
+  const capped = definite.filter((n) => want(n) > L);      // specific requests above the share
+  if (capped.length) {
+    notes.push(`Capped at the "as many as possible" share (${L}${extraNames.length ? `–${L + 1}` : ""}): ${capped.map((n) => `${n} asked for ${want(n)}`).join(", ")}.`);
+  }
+  const share = { level: L, base: L, remaining: atLevel.length * L + (totalSlots - total(L)), groupSize: atLevel.length, extraCount: extraNames.length, extraNames };
+  return { targets, definite, definiteSum, maxGroup, noResponse, level: L, capped, share, leftoverToScheduler: 0, notes };
 }
 
 /** "If everyone asked for as many as possible" estimate for the first email. */
