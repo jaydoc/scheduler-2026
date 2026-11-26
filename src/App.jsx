@@ -543,6 +543,7 @@ export default function App() {
   const [showLimits, setShowLimits] = useState(true);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [allSubmissions, setAllSubmissions] = useState([]);
+  const [staleSubmissions, setStaleSubmissions] = useState([]);   // older copies that no longer count
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [allocatedSchedule, setAllocatedSchedule] = useState(null);
   const [showAllocationModal, setShowAllocationModal] = useState(false);
@@ -668,8 +669,20 @@ export default function App() {
   const loadAllSubmissions = async () => {
     setLoadingSubmissions(true);
     try {
-      const subs = await store.listSubmissions();
-      setAllSubmissions(subs);
+      const [subs, linkList] = await Promise.all([store.listSubmissions(), store.listLinks()]);
+      setLinks(linkList);
+      // Only the newest submission per person, from a link that still works, counts.
+      const activeTokens = new Set(linkList.filter((l) => l.active).map((l) => l.token));
+      const tsOf = (x) => (typeof x?.ts === "number" ? x.ts : x?.ts?.toMillis?.() ?? 0);
+      const best = {};
+      for (const sub of subs) {
+        if (store.mode === "firebase" && !activeTokens.has(sub.id)) continue;
+        if (!best[sub.who] || tsOf(sub) > tsOf(best[sub.who])) best[sub.who] = sub;
+      }
+      const current = Object.values(best);
+      const currentIds = new Set(current.map((x) => x.id));
+      setAllSubmissions(current);
+      setStaleSubmissions(subs.filter((x) => !currentIds.has(x.id)));
       if (subs.length === 0) alert("No submissions found yet.");
     } catch (e) {
       console.error("Failed to load submissions", e);
@@ -872,7 +885,12 @@ export default function App() {
   const reissueLink = async (l) => {
     if (!window.confirm(`Issue a new link for ${l.name}? Their current link will stop working (their saved preferences move to the new link). You'll need to email them the new one.`)) return;
     setLinksBusy(true);
-    try { await store.reissueLink(l.token, l.name); await loadLinks(); } catch (e) { alert("Failed to reissue: " + e.message); } finally { setLinksBusy(false); }
+    try {
+      const t = await store.reissueLink(l.token, l.name);
+      // If you replaced your own link, keep working under the new one.
+      if (identity && l.token === identity.key) setIdentity({ ...identity, key: t });
+      await loadLinks();
+    } catch (e) { alert("Failed to reissue: " + e.message); } finally { setLinksBusy(false); }
   };
   const copyText = async (t) => {
     try { await navigator.clipboard.writeText(t); alert("Link copied."); } catch { window.prompt("Copy this link:", t); }
@@ -1116,6 +1134,17 @@ Jegen`;
                                   </div>
                                 ))}
                               </div>
+                              {staleSubmissions.length > 0 && (
+                                <div style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+                                  Older copies that are ignored (replaced by a newer submission or link):{' '}
+                                  {staleSubmissions.map((sub, i) => (
+                                    <span key={sub.id}>
+                                      {i > 0 && ' · '}{sub.who} ({wantLabel(sub.want)}, {sub.rankings?.length || 0} ranked){' '}
+                                      <button className="btn-link" style={{ color: '#dc2626', fontSize: 12 }} onClick={() => resetUserData(sub)}>Delete</button>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                               {notSubmitted.length > 0 && (
                                 <div style={{ fontSize: 12, color: '#92400e', marginTop: 8 }}>
                                   Not submitted yet: {notSubmitted.join(", ")}
